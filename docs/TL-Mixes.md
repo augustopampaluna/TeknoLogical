@@ -11,9 +11,9 @@ A 7-channel mono/stereo audio mixer for VCV Rack 2. Each channel provides High-P
 
 | Control | Description |
 |---|---|
-| CUT | Enables a gentle high-pass filter on the channel to remove DC/low-end rumble. LED indicates on/off. |
+| CUT | Enables a gentle high-pass filter on the channel. LED indicates on/off. |
 | Pan | -1..+1 pan. With mono sources, TL-Mixes uses constant-power panning. With stereo sources, it acts as a balance control (attenuates the opposite side). The Pan CV input (P) replaces the knob with a range of -5..+5 V. |
-| Vol | Channel gain. The knob sets the maximum (0..100%). The Volume CV input (V) applies an absolute 0..1 value within that maximum, expected CV range 0..10 V. This makes each channel usable as a simple VCA. |
+| Vol | Channel volume. The knob sets the maximum (0..100%). The Volume CV input (V) applies an absolute 0..1 value within that maximum, expected CV range 0..10 V. This makes each channel usable as a simple VCA. |
 | Mute | Silences the channel. LED indicates state. |
 | Solo | Isolates the channel. If any Solo is active, only soloed channels are heard. LED indicates state. |
 
