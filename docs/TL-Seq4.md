@@ -1,6 +1,6 @@
 # TL-Seq4
 
-<img width="673" height="946" alt="tlseq4" src="https://github.com/user-attachments/assets/6414a8f1-e326-4168-9253-429f7c4e9cc1" />
+<img width="412" height="583" alt="docu_seq4" src="https://github.com/user-attachments/assets/a454ecbe-6cd2-4d8a-8617-de1156a016d9" />
 
 A **two-channel step trigger sequencer** for VCV Rack. Channel A runs **4 or 8 steps**, and Channel B runs **8 or 16 steps**. Each step can be toggled on/off. Perfect for programming drum hits, accents, and rhythmic events with clean trigger outputs.
 
