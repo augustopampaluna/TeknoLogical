@@ -1,6 +1,6 @@
 # TL-Bass
 
-<img width="318" height="937" alt="Captura de pantalla 2025-09-17 215833" src="https://github.com/user-attachments/assets/2a1dc064-011c-424b-a049-c16185f33c59" />
+<img width="136" height="581" alt="docu_bass" src="https://github.com/user-attachments/assets/5289203c-840d-498c-b15e-f5150527e039" />
 
 **Minimal / psy bass voice for VCV Rack.** One-shot trigger, **1 V/Oct** input, **timbre 1/2** selector, and a **bipolar filter** where **0 = bypass**, **negative = low-pass**, **positive = high-pass**. The engine includes a short anti-click micro-attack and a DC-block on the output.
 
