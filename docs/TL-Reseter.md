@@ -1,6 +1,6 @@
 # TL-Reseter
 
-<img width="115" height="944" alt="tereseter" src="https://github.com/user-attachments/assets/7281be01-63f4-4989-a0e1-292894d7631f" />
+<img width="66" height="582" alt="docu_reseter" src="https://github.com/user-attachments/assets/55cd2374-f72e-4c5d-a9e4-db1361fd3193" />
 
 A **dual reset expander** for TL-Seq4. Provides manual buttons and gate inputs to reset **Channel A** and **Channel B** independently. Each channel can target the **left** or **right** neighboring TL-Seq4 via the internal expander bus. Perfect for bar-aligned patterns, fills, and live performance control.
 

@@ -2,19 +2,19 @@
 
 <img width="309" height="124" alt="tecnologo" src="https://github.com/user-attachments/assets/8c090297-3238-41ae-8a1e-a2d54ca1af6a" />
 
-<img width="1903" height="736" alt="Captura de pantalla 2025-09-20 152329" src="https://github.com/user-attachments/assets/2fc52c79-6d2f-42ea-b83c-bc501c90ce39" />
+<img width="309" height="124" alt="tecnologo" src="https://github.com/user-attachments/assets/c6f54a3b-7187-4efb-88aa-6d7e0b78abd8" />
 
-**TeknoLogical** is a collection of **VCV Rack 2** modules designed for live minimal techno performance.
+<img width="1880" height="697" alt="Captura de pantalla 2025-09-24 122335" src="https://github.com/user-attachments/assets/778ff262-2037-4067-a99c-ea0050b1794c" />
 
-Each module is a purpose-built tool focused on generating and developing rhythmic and melodic patterns through sequencing, tone generation, and controlled randomization. The collection is curated to enable complete performances with minimal external dependencies, offering a streamlined, cohesive, and instantly playable system.
+## Overview
 
-> ⚠️ **Note:** These modules are not general-purpose tools. They are intentionally limited in scope and sound design options.
+**TeknoLogical** is a focused set of VCV Rack 2 modules shaped for **live minimal techno**. The goal is simple: a compact, coherent instrument that feels immediate and reliable on stage.
 
-These modules are toward a specific sonic aesthetic—**a consistent, minimal techno sound**. For example, the modules that included samples are not meant to be swapped or customized.
+Each module is streamlined for **rhythmic and melodic pattern work**—sequencing, tone shaping, and controlled variation—so you can build grooves quickly and stay in the musical flow. The set is curated to work as a whole, enabling complete performances with minimal external dependencies.
 
-The direction of this project is not driven by a desire for maximum flexibility or versatility. Instead, the focus is on musical constraint, immediacy, and coherence—qualities I find essential for live techno performance.
+> **Heads‑up:** TeknoLogical is a **purpose-built instrument**, not a general‑purpose toolkit. Some modules use fixed samples or intentionally narrowed controls to maintain a **consistent sonic character** and a fast, performance‑first workflow.
 
-**TeknoLogical** tries to be something different: a minimal instrument for a focused purpose.
+This project favors **musical constraint, immediacy, and coherence**—qualities that help keep live techno tight, expressive, and dependable. If that focus resonates with you, welcome aboard.
 
 ---
 
@@ -36,4 +36,3 @@ The direction of this project is not driven by a desire for maximum flexibility 
 
 2. Build it using the VCV Rack Plugin Development Toolchain:
    See the official guide: [VCV Rack Plugin Development](https://vcvrack.com/manual/PluginDevelopmentTutorial)
-
