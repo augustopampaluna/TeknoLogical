@@ -8,21 +8,25 @@ using namespace rack;
 
 namespace DSPUtils {
 
+    // Small helper: checks if two floats differ more than epsilon.
     inline bool changedEnough(float a, float b, float eps = 1e-4f) {
         return std::fabs(a - b) > eps;
     }
 
+    // Equal-power panning gains for mono->stereo (pan in [-1..1]).
     inline void equalPowerGains(float pan, float& gL, float& gR) {
         float theta = (clamp(pan, -1.f, 1.f) * 0.5f + 0.5f) * (float)M_PI_2;
         gL = std::cos(theta);
         gR = std::sin(theta);
     }
 
+    // Equal-power attenuation factor for stereo balance (pan in [-1..1]).
     inline float equalPowerAttenuation(float pan /* -1..1 */) {
         float theta = std::fabs(clamp(pan, -1.f, 1.f)) * (float)M_PI_2;
         return std::cos(theta);
     }
 
+    // Simple 1st-order high-pass (DC blocker / tilt remover).
     struct HP1 {
         float a = 0.f, y1 = 0.f, x1 = 0.f;
         void setCutoff(float fc, float sampleRate) {
@@ -39,10 +43,12 @@ namespace DSPUtils {
         void reset(){ y1 = x1 = 0.f; }
     };
 
+    // 2nd-order low-pass (RBJ biquad) with configurable Q (resonance).
     struct LowPassFilter {
         float b0=1.f, b1=0.f, b2=0.f, a1=0.f, a2=0.f;
         float z1=0.f, z2=0.f;
 
+        // Q defaults to ~0.707 (Butterworth). Use higher Q for “peaky” response.
         void setCutoff(float cutoff, float sampleRate, float Q = 0.707f) {
             cutoff = std::max(20.f, cutoff);
             float w0 = 2.f * (float)M_PI * cutoff / sampleRate;
@@ -61,6 +67,7 @@ namespace DSPUtils {
             a1 = a1n / a0; a2 = a2n / a0;
         }
 
+        // Direct Form II Transposed processing.
         inline float process(float x) {
             float y = b0 * x + z1;
             z1 = b1 * x - a1 * y + z2;
@@ -69,10 +76,12 @@ namespace DSPUtils {
         }
     };
 
+    // 2nd-order high-pass (RBJ biquad) with configurable Q (resonance).
     struct HighPassFilter {
         float b0=1.f, b1=0.f, b2=0.f, a1=0.f, a2=0.f;
         float z1=0.f, z2=0.f;
 
+        // Q defaults to ~0.707 (Butterworth). Use higher Q for “peaky” response.
         void setCutoff(float cutoff, float sampleRate, float Q = 0.707f) {
             cutoff = std::max(20.f, cutoff);
             float w0 = 2.f * (float)M_PI * cutoff / sampleRate;
@@ -91,6 +100,7 @@ namespace DSPUtils {
             a1 = a1n / a0; a2 = a2n / a0;
         }
 
+        // Direct Form II Transposed processing.
         inline float process(float x) {
             float y = b0 * x + z1;
             z1 = b1 * x - a1 * y + z2;
@@ -99,6 +109,7 @@ namespace DSPUtils {
         }
     };
 
+    // Simple exponential decay envelope (one-shot).
     struct DecayEnvelope {
         float value = 0.f, decayCoeff = 0.f;
         void trigger(float decayParam, float sampleRate) {
@@ -113,12 +124,15 @@ namespace DSPUtils {
         bool isActive() const { return value > 0.001f; }
     };
 
+    // Map macro-filter param (-10..0) to LP cutoff in Hz (log curve).
     inline float mapLP_Cutoff(float filterParam /* -10..0 */, float sr) {
         return std::pow(10.f, rescale(filterParam, -10.f, 0.f, std::log10(20.f), std::log10(20000.f)));
     }
+    // Map macro-filter param (0..+10) to HP cutoff in Hz (log curve).
     inline float mapHP_Cutoff(float filterParam /* 0..+10 */, float sr) {
         return std::pow(10.f, rescale(filterParam, 0.f, 10.f, std::log10(20.f), std::log10(20000.f)));
     }
+    // Map distance-from-center (0..1) to resonance Q (center: low Q, edges: higher Q).
     inline float mapResonanceQ(float amount01) {
         const float Qmin = 0.707f;
         const float Qmax = 2.5f;
@@ -127,6 +141,7 @@ namespace DSPUtils {
         return Qmin + (Qmax - Qmin) * t;
     }
 
+    // LP biquad with cached coeffs (recompute on param or SR change).
     struct CachedLowPass {
         LowPassFilter filter;
         float lastParam = 999.f, lastSampleRate = 0.f;
@@ -146,6 +161,7 @@ namespace DSPUtils {
         }
     };
 
+    // HP biquad with cached coeffs (recompute on param or SR change).
     struct CachedHighPass {
         HighPassFilter filter;
         float lastParam = -999.f, lastSampleRate = 0.f;
@@ -165,17 +181,20 @@ namespace DSPUtils {
         }
     };
 
+    // Utility: volume knob [0..10] to linear gain [0..1].
     inline float applyVolume(float signal, float volumeParam) {
         float gain = clamp(volumeParam / 10.f, 0.f, 1.f);
         return signal * gain;
     }
 
+    // Utility: linear pan (mono->stereo) for legacy paths.
     inline void applyPan(float input, float panParam, float& left, float& right) {
         float pan = clamp(panParam, -1.f, 1.f);
         left  = input * (pan <= 0.f ? 1.f : 1.f - pan);
         right = input * (pan >= 0.f ? 1.f : 1.f + pan);
     }
 
+    // Utility: simple boost with clamp.
     inline float applyBoost(float signal, float push) {
         if (push == 1.0f) {
             float boosted = signal * 1.5f;
@@ -184,6 +203,7 @@ namespace DSPUtils {
         return signal;
     }
 
+    // One-shot LP application with dynamic Q (macro filter use).
     inline float applyLowPassFilter(float input, float filterParam, float sampleRate, LowPassFilter& filter) {
         if (filterParam < 0.f) {
             float cutoff = mapLP_Cutoff(filterParam, sampleRate);
@@ -195,6 +215,7 @@ namespace DSPUtils {
         return input;
     }
 
+    // One-shot HP application with dynamic Q (macro filter use).
     inline float applyHighPassFilter(float input, float filterParam, float sampleRate, HighPassFilter& filter) {
         if (filterParam > 0.f) {
             float cutoff = mapHP_Cutoff(filterParam, sampleRate);
@@ -206,17 +227,20 @@ namespace DSPUtils {
         return input;
     }
 
+    // Equal-power mono->stereo panner (accumulates into L/R).
     inline void panMonoEqualPower(float in, float pan /* -1..1 */, float& l, float& r) {
         float gl, gr; equalPowerGains(pan, gl, gr);
         l += in * gl; r += in * gr;
     }
 
+    // Equal-power stereo balance (attenuates one side).
     inline void balanceStereoEqualPower(float& l, float& r, float pan /* -1..1 */) {
         float g = equalPowerAttenuation(pan);
         if (pan > 0.f) l *= g;
         else if (pan < 0.f) r *= g;
     }
 
+    // Soft limiter targeting ±5 V nominal levels.
     inline float softLimit5V(float x) {
     #ifdef DSP_FAST_LIMIT
         float y = x - (x * x * x) / (75.f);
@@ -226,6 +250,7 @@ namespace DSPUtils {
     #endif
     }
 
+    // Resolve volume from knob [0..10] and optional CV [0..10 V].
     inline float resolveVolume01(float knob0to10, bool cvConnected, float cvVolts0to10) {
         float volMax = clamp(knob0to10 / 10.f, 0.f, 1.f);
         if (!cvConnected) return volMax;
@@ -233,6 +258,7 @@ namespace DSPUtils {
         return volMax * v;
     }
 
+    // Resolve pan from knob [-1..1] or CV ±5 V (CV overrides knob).
     inline float resolvePanMinus1to1(float knobMinus1to1, bool cvConnected, float cvVoltsPlusMinus5) {
         if (!cvConnected) return clamp(knobMinus1to1, -1.f, 1.f);
         return clamp(cvVoltsPlusMinus5 / 5.f, -1.f, 1.f);

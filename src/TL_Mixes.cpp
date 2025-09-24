@@ -9,6 +9,8 @@
 
 using namespace rack;
 
+// Stereo 7-channel mixer with per-channel HP toggle, pan, volume, mute/solo,
+// master gain and post-limiter VU metering.
 struct TL_Mixes : Module {
 	enum ParamId {
 		CUT_1_PARAM, CUT_2_PARAM, CUT_3_PARAM, CUT_4_PARAM, CUT_5_PARAM, CUT_6_PARAM, CUT_7_PARAM,
@@ -28,6 +30,7 @@ struct TL_Mixes : Module {
 	};
 	enum OutputId { OUT_L_OUTPUT, OUT_R_OUTPUT, OUTPUTS_LEN };
 	enum LightId {
+		// Per-channel state LEDs + 2×5-segment VU meters + mute/solo LEDs
 		LED_1_LIGHT, LED_2_LIGHT, LED_3_LIGHT, LED_4_LIGHT, LED_5_LIGHT, LED_6_LIGHT, LED_7_LIGHT,
 		L_VU_1_LIGHT, L_VU_2_LIGHT, L_VU_3_LIGHT, L_VU_4_LIGHT, L_VU_5_LIGHT,
 		R_VU_1_LIGHT, R_VU_2_LIGHT, R_VU_3_LIGHT, R_VU_4_LIGHT, R_VU_5_LIGHT,
@@ -38,22 +41,22 @@ struct TL_Mixes : Module {
 
 	static constexpr int CH = 7;
 
-	// HP por lado/canal
+	// Per-channel high-pass (first-order) for the CUT switch.
 	DSPUtils::HP1 hpL[CH];
 	DSPUtils::HP1 hpR[CH];
 
-	// Cache de paneo/ balance cuando NO hay CV (evita trig por sample)
+	// Pan/balance caches when no CV is present (avoid per-sample trig).
 	float lastPanKnob[CH] {};
-	float panGL[CH] {}; // mono->L
-	float panGR[CH] {}; // mono->R
-	float balG[CH]   {}; // balance atenuación
+	float panGL[CH] {}; // mono->L gain
+	float panGR[CH] {}; // mono->R gain
+	float balG[CH]   {}; // stereo balance attenuation
 	bool  panCacheValid[CH] {};
 
-	// VU / SR
+	// Metering and sample-rate tracking.
 	float vuL = 0.f, vuR = 0.f;
 	float sampleRate = 44100.f;
 
-	// cutoff fijo para CUT
+	// Fixed CUT frequency.
 	float cutHz = 180.f;
 
 	TL_Mixes() {
@@ -79,12 +82,14 @@ struct TL_Mixes : Module {
 		configOutput(OUT_R_OUTPUT, "Right");
 	}
 
+	// Rebuild HP filters on SR change.
 	void onSampleRateChange(const SampleRateChangeEvent& e) override {
 		Module::onSampleRateChange(e);
 		sampleRate = e.sampleRate;
 		for (int i = 0; i < CH; ++i) { hpL[i].setCutoff(cutHz, sampleRate); hpR[i].setCutoff(cutHz, sampleRate); }
 	}
 
+	// Reset runtime state and caches.
 	void onReset(const ResetEvent& e) override {
 		Module::onReset(e);
 		vuL = vuR = 0.f;
@@ -94,20 +99,22 @@ struct TL_Mixes : Module {
 		}
 	}
 
+	// Update cached pan/balance gains when knob changes and no CV is connected.
 	inline void updatePanCachesIfNeeded(int c, float panKnob, bool panCvConnected) {
-		if (panCvConnected) return; // con CV no cacheamos (audio-rate)
+		if (panCvConnected) return; // with CV we compute per sample
 		if (!panCacheValid[c] || DSPUtils::changedEnough(panKnob, lastPanKnob[c])) {
 			lastPanKnob[c] = panKnob;
-			// mono -> stereo
+			// mono -> stereo gains
 			DSPUtils::equalPowerGains(panKnob, panGL[c], panGR[c]);
-			// balance estéreo
+			// stereo balance attenuation
 			balG[c] = DSPUtils::equalPowerAttenuation(panKnob);
 			panCacheValid[c] = true;
 		}
 	}
 
+	// Audio/MIDI process: per-channel mixing, CUT, pan/balance, master and VU.
 	void process(const ProcessArgs& args) override {
-		// ensure HP is configured
+		// Keep HP filters aligned with SR if engine changes it on the fly.
 		if (args.sampleRate != sampleRate) {
 			sampleRate = args.sampleRate;
 			for (int i = 0; i < CH; ++i) { hpL[i].setCutoff(cutHz, sampleRate); hpR[i].setCutoff(cutHz, sampleRate); }
@@ -115,47 +122,46 @@ struct TL_Mixes : Module {
 
 		float mixL = 0.f, mixR = 0.f;
 
-		// Any SOLO active?
+		// Global SOLO detection (any channel soloed).
 		bool anySolo = false;
 		for (int c = 0; c < CH; ++c) anySolo |= (params[SOLO_1_PARAM + c].getValue() > 0.5f);
 
 		for (int c = 0; c < CH; ++c) {
-			// Estado
+			// Per-channel states (CUT/MUTE/SOLO) + indicator LEDs.
 			bool cut  = params[CUT_1_PARAM  + c].getValue() > 0.5f;
 			bool mute = params[MUTE_1_PARAM + c].getValue() > 0.5f;
 			bool solo = params[SOLO_1_PARAM + c].getValue() > 0.5f;
 
-			// LEDs
 			lights[LED_1_LIGHT + c].setBrightness(cut  ? 1.f : 0.f);
 			lights[MUTE_1_LED + c].setBrightness(mute ? 1.f : 0.f);
 			lights[SOLO_1_LED + c].setBrightness(solo ? 1.f : 0.f);
 
-			// Solo/mute gating
+			// Solo/mute gating.
 			if (mute || (anySolo && !solo)) continue;
 
-			// Conexiones
+			// Input wiring (mono if only one side connected).
 			bool lConn = inputs[L_IN_1_INPUT + c].isConnected();
 			bool rConn = inputs[R_IN_1_INPUT + c].isConnected();
-			// Early-out: canal completamente vacío
+			// Early-out for completely empty channels.
 			if (!lConn && !rConn) continue;
 
 			float inL = lConn ? inputs[L_IN_1_INPUT + c].getVoltage() : 0.f;
 			float inR = rConn ? inputs[R_IN_1_INPUT + c].getVoltage() : 0.f;
 
-			// Mono/stereo
+			// Mono fold-down if only one side is present.
 			bool stereo = (lConn && rConn);
 			if (!stereo) {
 				float mono = lConn ? inL : inR;
 				inL = mono; inR = mono;
 			}
 
-			// CUT (HP) por lado si activo
+			// Per-side CUT (HP) if enabled.
 			if (cut) {
 				inL = hpL[c].process(inL);
 				inR = hpR[c].process(inR);
 			}
 
-			// Volume
+			// Volume (knob as max, CV scales 0..1).
 			float vol = DSPUtils::resolveVolume01(
 				params[VOL_1_PARAM + c].getValue(),
 				inputs[VOL_IN_1_INPUT + c].isConnected(),
@@ -163,30 +169,28 @@ struct TL_Mixes : Module {
 			);
 			inL *= vol; inR *= vol;
 
-			// Pan
+			// Pan (CV overrides knob) + caches when no CV.
 			bool panCv = inputs[PAN_IN_1_INPUT + c].isConnected();
 			float panVal = panCv
 				? DSPUtils::resolvePanMinus1to1(0.f, true, inputs[PAN_IN_1_INPUT + c].getVoltage())
 				: params[PAN_1_PARAM + c].getValue();
 
-			// Cache de gains si no hay CV
 			updatePanCachesIfNeeded(c, panVal, panCv);
 
 			if (stereo) {
-				// Balance estéreo equal-power
+				// Stereo balance (equal-power).
 				if (panCv) {
 					float g = DSPUtils::equalPowerAttenuation(panVal);
 					if (panVal > 0.f) inL *= g;
 					else if (panVal < 0.f) inR *= g;
 				} else {
-					// usar cache
 					if (panVal > 0.f) inL *= balG[c];
 					else if (panVal < 0.f) inR *= balG[c];
 				}
 				mixL += inL; mixR += inR;
 			}
 			else {
-				// mono -> stereo equal-power
+				// Mono -> stereo pan (equal-power).
 				float mono = 0.5f * (inL + inR);
 				if (panCv) {
 					float gl, gr; DSPUtils::equalPowerGains(panVal, gl, gr);
@@ -197,21 +201,21 @@ struct TL_Mixes : Module {
 			}
 		}
 
-		// Master
+		// Master gain (pre-limiter).
 		float master = clamp(params[MASTER_PARAM].getValue() / 100.f, 0.f, 1.f);
 		mixL *= master; mixR *= master;
 
-		// Limitador
+		// Soft limiter to ±5 V nominal.
 		float outL = DSPUtils::softLimit5V(mixL);
 		float outR = DSPUtils::softLimit5V(mixR);
 
-		// VU post-limiter
+		// Post-limiter VU (simple attack/decay ballistics).
 		const float rel = 0.02f;
 		float absL = std::fabs(outL), absR = std::fabs(outR);
 		vuL = std::max(absL, vuL * (1.f - rel) + absL * rel);
 		vuR = std::max(absR, vuR * (1.f - rel) + absR * rel);
 
-		// Luces VU
+		// Light up 5-segment VU bars (L/R).
 		auto setVU = [&](float v, int baseLight) {
 			const float fs = 5.f;
 			const float t1 = 0.05f * fs, t2 = 0.12f * fs, t3 = 0.25f * fs, t4 = 0.50f * fs, t5 = 0.90f * fs;
@@ -224,12 +228,13 @@ struct TL_Mixes : Module {
 		setVU(vuL, L_VU_1_LIGHT);
 		setVU(vuR, R_VU_1_LIGHT);
 
-		// Salidas
+		// Outputs (post-limiter).
 		outputs[OUT_L_OUTPUT].setVoltage(outL);
 		outputs[OUT_R_OUTPUT].setVoltage(outR);
 	}
 };
 
+// Widget: panel/controls layout and wiring to params/IO/lights.
 struct TL_MixesWidget : ModuleWidget {
 	TL_MixesWidget(TL_Mixes* module) {
 		setModule(module);
@@ -240,6 +245,7 @@ struct TL_MixesWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
+		// CUT toggles (per channel)
 		addParam(createParamCentered<NKK>(mm2px(Vec(8.697, 64.656)), module, TL_Mixes::CUT_1_PARAM));
 		addParam(createParamCentered<NKK>(mm2px(Vec(25.869, 62.004)), module, TL_Mixes::CUT_2_PARAM));
 		addParam(createParamCentered<NKK>(mm2px(Vec(43.946, 59.346)), module, TL_Mixes::CUT_3_PARAM));
@@ -248,6 +254,7 @@ struct TL_MixesWidget : ModuleWidget {
 		addParam(createParamCentered<NKK>(mm2px(Vec(96.012, 61.92)), module, TL_Mixes::CUT_6_PARAM));
 		addParam(createParamCentered<NKK>(mm2px(Vec(113.655, 64.528)), module, TL_Mixes::CUT_7_PARAM));
 
+		// PAN trimmers (per channel)
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(8.566, 78.383)), module, TL_Mixes::PAN_1_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(25.738, 75.831)), module, TL_Mixes::PAN_2_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(43.815, 73.173)), module, TL_Mixes::PAN_3_PARAM));
@@ -256,6 +263,7 @@ struct TL_MixesWidget : ModuleWidget {
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(95.881, 75.847)), module, TL_Mixes::PAN_6_PARAM));
 		addParam(createParamCentered<Trimpot>(mm2px(Vec(113.524, 78.456)), module, TL_Mixes::PAN_7_PARAM));
 
+		// VOL knobs (per channel)
 		addParam(createParamCentered<Rogan1PWhite>(mm2px(Vec(8.635, 91.752)), module, TL_Mixes::VOL_1_PARAM));
 		addParam(createParamCentered<Rogan1PWhite>(mm2px(Vec(25.807, 89.1)), module, TL_Mixes::VOL_2_PARAM));
 		addParam(createParamCentered<Rogan1PWhite>(mm2px(Vec(43.884, 86.442)), module, TL_Mixes::VOL_3_PARAM));
@@ -264,6 +272,7 @@ struct TL_MixesWidget : ModuleWidget {
 		addParam(createParamCentered<Rogan1PWhite>(mm2px(Vec(95.95, 89.016)), module, TL_Mixes::VOL_6_PARAM));
 		addParam(createParamCentered<Rogan1PWhite>(mm2px(Vec(113.593, 91.624)), module, TL_Mixes::VOL_7_PARAM));
 		
+		// MUTE/ SOLO (latching buttons with lights)
 		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<BlueLight>>>(mm2px(Vec(5.015, 104.696)), module, TL_Mixes::MUTE_1_PARAM, TL_Mixes::MUTE_1_LED));
 		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<BlueLight>>>(mm2px(Vec(22.529, 102.446)), module, TL_Mixes::MUTE_2_PARAM, TL_Mixes::MUTE_2_LED));
 		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<BlueLight>>>(mm2px(Vec(39.939, 99.866)), module, TL_Mixes::MUTE_3_PARAM, TL_Mixes::MUTE_3_LED));
@@ -280,8 +289,10 @@ struct TL_MixesWidget : ModuleWidget {
 		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<BlueLight>>>(mm2px(Vec(100.297, 102.544)), module, TL_Mixes::SOLO_6_PARAM, TL_Mixes::SOLO_6_LED));
 		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<BlueLight>>>(mm2px(Vec(117.257, 105.27)), module, TL_Mixes::SOLO_7_PARAM, TL_Mixes::SOLO_7_LED));
 
+		// Master slider
 		addParam(createParamCentered<SmallHSlider>(mm2px(rack::math::Vec(61.085, 107.963)), module, TL_Mixes::MASTER_PARAM));
 
+		// Audio inputs (L/R per channel)
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.55, 22.44)), module, TL_Mixes::L_IN_1_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.74, 19.788)), module, TL_Mixes::L_IN_2_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.7, 17.13)), module, TL_Mixes::L_IN_3_INPUT));
@@ -298,6 +309,7 @@ struct TL_MixesWidget : ModuleWidget {
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.88, 29.251)), module, TL_Mixes::R_IN_6_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.2, 31.859)), module, TL_Mixes::R_IN_7_INPUT));
 
+		// Control inputs (per channel)
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.55, 43.585)), module, TL_Mixes::VOL_IN_1_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.74, 40.932)), module, TL_Mixes::VOL_IN_2_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.7, 38.275)), module, TL_Mixes::VOL_IN_3_INPUT));
@@ -314,9 +326,11 @@ struct TL_MixesWidget : ModuleWidget {
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.88, 50.373)), module, TL_Mixes::PAN_IN_6_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.2, 52.982)), module, TL_Mixes::PAN_IN_7_INPUT));
 
+		// Outputs
 		addOutput(createOutputCentered<DarkPJ301MPort>(mm2px(Vec(55.805, 116.52)), module, TL_Mixes::OUT_L_OUTPUT));
 		addOutput(createOutputCentered<DarkPJ301MPort>(mm2px(Vec(66.731, 116.551)), module, TL_Mixes::OUT_R_OUTPUT));
 
+		// Per-channel status LEDs
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(3.48, 61.582)), module, TL_Mixes::LED_1_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(20.652, 58.929)), module, TL_Mixes::LED_2_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(38.729, 56.271)), module, TL_Mixes::LED_3_LIGHT));
@@ -325,6 +339,7 @@ struct TL_MixesWidget : ModuleWidget {
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(90.795, 58.845)), module, TL_Mixes::LED_6_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(108.438, 61.454)), module, TL_Mixes::LED_7_LIGHT));
 
+		// VU bargraph LEDs (left/right)
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(44.653, 121.596)), module, TL_Mixes::L_VU_1_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(44.666, 119.364)), module, TL_Mixes::L_VU_2_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(44.659, 116.826)), module, TL_Mixes::L_VU_3_LIGHT));

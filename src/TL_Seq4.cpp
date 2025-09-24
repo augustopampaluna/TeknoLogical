@@ -4,9 +4,9 @@
 
 extern Model* modelTL_Reseter;
 
-// General structure.
+// Main module class for a dual trigger sequencer (A: 4/8 steps, B: 8/16 steps).
 struct TL_Seq4 : Module {
-// --------------------   Visual components namespace  ---------------------------
+// --------------------   UI enums / parameter & I/O indices  --------------------
 	enum ParamId {
 		LENGTH_1_PARAM,
 		REVERSE_1_PARAM,
@@ -59,6 +59,7 @@ struct TL_Seq4 : Module {
 		OUTPUTS_LEN
 	};
 	enum LightId {
+		// A ring LEDs
 		LED_A1_LIGHT,
 		LED_A2_LIGHT,
 		LED_A3_LIGHT,
@@ -68,6 +69,7 @@ struct TL_Seq4 : Module {
 		LED_A7_LIGHT,
 		LED_A8_LIGHT,
 
+		// A step latch LEDs
 		STEP_A1_LED,
 		STEP_A2_LED,
 		STEP_A3_LED,
@@ -77,6 +79,7 @@ struct TL_Seq4 : Module {
 		STEP_A7_LED,
 		STEP_A8_LED,
 
+		// A mini activity LEDs
 		MINILED_A1_LIGHT,
 		MINILED_A2_LIGHT,
 		MINILED_A3_LIGHT,
@@ -86,6 +89,7 @@ struct TL_Seq4 : Module {
 		MINILED_A7_LIGHT,
 		MINILED_A8_LIGHT,
 
+		// B ring LEDs
 		LED_B1_LIGHT,
 		LED_B2_LIGHT,
 		LED_B3_LIGHT,
@@ -103,6 +107,7 @@ struct TL_Seq4 : Module {
 		LED_B15_LIGHT,
 		LED_B16_LIGHT,
 		
+		// B step latch LEDs
 		STEP_B1_LED,
 		STEP_B2_LED,
 		STEP_B3_LED,
@@ -120,6 +125,7 @@ struct TL_Seq4 : Module {
 		STEP_B15_LED,
 		STEP_B16_LED,
 
+		// B mini activity LEDs
 		MINILED_B1_LIGHT,
 		MINILED_B2_LIGHT,
 		MINILED_B3_LIGHT,
@@ -140,12 +146,11 @@ struct TL_Seq4 : Module {
 		LIGHTS_LEN
 	};
 
-// --------------------   Set initial values  ------------------------------------
-
+// --------------------   Runtime state / edge detectors  ------------------------
 	dsp::BooleanTrigger resetATrigger;
 	dsp::BooleanTrigger resetBTrigger;
 
-	// Seq A.
+	// Sequencer A state.
 	bool input_a = false;
 	bool latch_a[8];
 	bool length_a = false, reverse_a = false;
@@ -154,15 +159,15 @@ struct TL_Seq4 : Module {
 	dsp::SchmittTrigger clockTriggerA;
 	dsp::PulseGenerator gatePulseA;
 	bool reverseA = false, lengthA = false;
-	bool reverse_a_state = false;  // Estado actual del switch de reversa
-	dsp::SchmittTrigger reverse_a_cv_trigger;  // Para detectar flancos en el input CV
+	bool reverse_a_state = false;              // Current reverse switch state (A)
+	dsp::SchmittTrigger reverse_a_cv_trigger;  // Edge detector for reverse CV (A)
 	bool manual_reverse_a = false;
-	bool length_a_state = false;  // Estado actual del switch de duracion
-	dsp::SchmittTrigger length_a_cv_trigger;  // Para detectar flancos en el input CV
+	bool length_a_state = false;               // Current length switch state (A)
+	dsp::SchmittTrigger length_a_cv_trigger;   // Edge detector for length CV (A)
 	bool manual_length_a = false;
 
 	
-	// Seq B.
+	// Sequencer B state.
 	bool input_b = false;
 	bool latch_b[16];
 	bool length_b = false, reverse_b = false;
@@ -171,28 +176,29 @@ struct TL_Seq4 : Module {
 	dsp::SchmittTrigger clockTriggerB;
 	dsp::PulseGenerator gatePulseB;
 	bool reverseB = false, lengthB = false;
-	bool reverse_b_state = false;  // Estado actual del switch de reversa
-	dsp::SchmittTrigger reverse_b_cv_trigger;  // Para detectar flancos en el input CV
+	bool reverse_b_state = false;              // Current reverse switch state (B)
+	dsp::SchmittTrigger reverse_b_cv_trigger;  // Edge detector for reverse CV (B)
 	bool manual_reverse_b = false;
-	bool length_b_state = false;  // Estado actual del switch de duracion
-	dsp::SchmittTrigger length_b_cv_trigger;  // Para detectar flancos en el input CV
+	bool length_b_state = false;               // Current length switch state (B)
+	dsp::SchmittTrigger length_b_cv_trigger;   // Edge detector for length CV (B)
 	bool manual_length_b = false;
 	
 	int totalStepsA, totalStepsB;
 	bool latchStates[24];
 	float gateOut;
 
-	// --- Expander: lectura de resets que llegan por vecinos ---
+	// --- Expander: input pulses from neighbor modules (TL_Reseter) -------------
     bool resetAPulse = false;
     bool resetBPulse = false;
 
 	ReseterMessage leftBuf[2];
 	ReseterMessage rightBuf[2];
 
+	// Read expander messages from left/right neighbors and convert to 1-frame pulses.
 	inline void readExpanderResets() {
 		bool a = false, b = false;
 
-		// --- Lectura directa del producer del vecino (garantiza ver el pulso aunque el flip caiga desfasado)
+		// Read producer messages directly (ensures catching pulses even if flips are desynced).
 		if (leftExpander.module && leftExpander.module->model == modelTL_Reseter) {
 			auto* p = (ReseterMessage*) leftExpander.module->rightExpander.producerMessage;
 			if (p) { a |= p->aGate; b |= p->bGate; }
@@ -202,7 +208,7 @@ struct TL_Seq4 : Module {
 			if (p) { a |= p->aGate; b |= p->bGate; }
 		}
 
-		// --- Respaldo: también leer mi consumer y pedir flip (ruta “oficial” del expander)
+		// Also read my consumer messages and request a flip (official expander path).
 		if (leftExpander.module && leftExpander.module->model == modelTL_Reseter) {
 			auto* c = (ReseterMessage*) leftExpander.consumerMessage;
 			a |= c->aGate;
@@ -223,18 +229,18 @@ struct TL_Seq4 : Module {
 			((ReseterMessage*) rightExpander.consumerMessage)->bGate = false;
 		}
 
-		// Genera pulso de 1 frame a partir del nivel combinado
+		// Convert combined levels into single-frame pulses.
 		resetAPulse = resetATrigger.process(a);
 		resetBPulse = resetBTrigger.process(b);
 	}
 
 
-// --------------------   Config module  -----------------------------------------
+// --------------------   Constructor / configuration  ---------------------------
 	TL_Seq4() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		static const std::vector<std::string> on_off_labels = {"OFF", "ON"};
 		
-		// Sequencer A.
+		// Sequencer A controls.
 		static const std::vector<std::string> steps_labels_a = {"4", "8"};
 		configSwitch(LENGTH_1_PARAM, 0.f, 1.f, 0.f, "Steps", steps_labels_a);
 		configSwitch(REVERSE_1_PARAM, 0.f, 1.f, 0.f, "Reverse", on_off_labels);
@@ -253,7 +259,7 @@ struct TL_Seq4 : Module {
 		
 		configOutput(OUT_1_OUTPUT, "Seq A");
 		
-		// Sequencer B.
+		// Sequencer B controls.
 		static const std::vector<std::string> steps_labels_b = {"8", "16"};
 		configSwitch(LENGTH_2_PARAM, 0.f, 1.f, 0.f, "Steps", steps_labels_b);
 		configSwitch(REVERSE_2_PARAM, 0.f, 1.f, 0.f, "Reverse", on_off_labels);
@@ -280,16 +286,15 @@ struct TL_Seq4 : Module {
 			
 		configOutput(OUT_2_OUTPUT, "Seq B");
 
-		// Expander: asigna buffers para este módulo
+		// Expander: assign message buffers for this module.
 		leftExpander.producerMessage  = &leftBuf[0];
 		leftExpander.consumerMessage  = &leftBuf[1];
 		rightExpander.producerMessage = &rightBuf[0];
 		rightExpander.consumerMessage = &rightBuf[1];
 	}
 
-// --------------------   Functions  ---------------------------------------------
-
-	// Set step latchs leds.
+// --------------------   Helpers (LEDs / inputs / indicators)  ------------------
+	// Write latched step LEDs for both sequencers (A: 8, B: 16).
 	void setStepsLeds(Module* module, const bool latch_a[], int len_a, const bool latch_b[], int len_b) {
 		const int stepLEDs[] = {
 			STEP_A1_LED, STEP_A2_LED, STEP_A3_LED, STEP_A4_LED, STEP_A5_LED, STEP_A6_LED, STEP_A7_LED, STEP_A8_LED,
@@ -297,19 +302,19 @@ struct TL_Seq4 : Module {
 			STEP_B9_LED, STEP_B10_LED, STEP_B11_LED, STEP_B12_LED, STEP_B13_LED, STEP_B14_LED, STEP_B15_LED, STEP_B16_LED,
 		};
 
-		// LEDs latch_a (8)
+		// A latch LEDs (8)
 		for (int i = 0; i < len_a; ++i) {
 			module->lights[stepLEDs[i]].setBrightness(latch_a[i] ? 1.0f : 0.0f);
 		}
-		// LEDs latch_b (16)
+		// B latch LEDs (16)
 		for (int i = 0; i < len_b; ++i) {
 			module->lights[stepLEDs[len_a + i]].setBrightness(latch_b[i] ? 1.0f : 0.0f);
 		}
 	}
 	
-	// Read and update all inputs values.
+	// Read user controls and CVs, update derived states (length/reverse toggles, clocks).
 	void updateAllInputStates() {
-		// Seq A.
+		// A steps (8 toggles)
 		ParamId stepsParamsA[] = {
 			STEP_A1_PARAM, STEP_A2_PARAM, STEP_A3_PARAM, STEP_A4_PARAM,
 			STEP_A5_PARAM, STEP_A6_PARAM, STEP_A7_PARAM, STEP_A8_PARAM
@@ -321,6 +326,7 @@ struct TL_Seq4 : Module {
 
 		input_a   = inputs[IN_STEP_1_INPUT].getVoltage() >= 1.0f;
 		
+		// A length (CV edge toggles switch)
 		length_a  = params[LENGTH_1_PARAM].getValue() == 1.0f;
 		cv_len_a  = inputs[LENGTH_1_INPUT].getVoltage() >= 1.0f;
 		if (length_a_state != length_a) {
@@ -330,11 +336,12 @@ struct TL_Seq4 : Module {
 			length_a_state = !length_a_state;
 		}
 		
-		// Reflejar el estado actual en el switch visual (esto mueve el interruptor)
+		// Reflect current logical state in the visual switch.
 		params[LENGTH_1_PARAM].setValue(length_a_state ? 1.0f : 0.0f);
 		lengthA = length_a_state;
 
 
+		// A reverse (CV edge toggles switch)
 		reverse_a = params[REVERSE_1_PARAM].getValue() == 1.0f;
 		cv_rev_a  = inputs[REVERSE_1_INPUT].getVoltage() >= 1.0f;
 		if (reverse_a_state != reverse_a) {
@@ -344,11 +351,11 @@ struct TL_Seq4 : Module {
 			reverse_a_state = !reverse_a_state;
 		}
 		
-		// Reflejar el estado actual en el switch visual (esto mueve el interruptor)
+		// Reflect current logical state in the visual switch.
 		params[REVERSE_1_PARAM].setValue(reverse_a_state ? 1.0f : 0.0f);
 		reverseA = reverse_a_state;
 
-		// Seq B.
+		// B steps (16 toggles)
 		ParamId stepsParamsB[] = {
 			STEP_B1_PARAM, STEP_B2_PARAM, STEP_B3_PARAM, STEP_B4_PARAM,
 			STEP_B5_PARAM, STEP_B6_PARAM, STEP_B7_PARAM, STEP_B8_PARAM,
@@ -362,6 +369,7 @@ struct TL_Seq4 : Module {
 
 		input_b   = inputs[IN_STEP_2_INPUT].getVoltage() >= 1.0f;
 
+		// B length (CV edge toggles switch)
 		length_b  = params[LENGTH_2_PARAM].getValue() == 1.0f;
 		cv_len_b  = inputs[LENGTH_2_INPUT].getVoltage() >= 1.0f;
 		if (length_b_state != length_b) {
@@ -371,10 +379,11 @@ struct TL_Seq4 : Module {
 			length_b_state = !length_b_state;
 		}
 		
-		// Reflejar el estado actual en el switch visual (esto mueve el interruptor)
+		// Reflect current logical state in the visual switch.
 		params[LENGTH_2_PARAM].setValue(length_b_state ? 1.0f : 0.0f);
 		lengthB = length_b_state;
 
+		// B reverse (CV edge toggles switch)
 		reverse_b = params[REVERSE_2_PARAM].getValue() == 1.0f;
 		cv_rev_b  = inputs[REVERSE_2_INPUT].getVoltage() >= 1.0f;
 		if (reverse_b_state != reverse_b) {
@@ -388,7 +397,7 @@ struct TL_Seq4 : Module {
 
 	}
 
-	// Update both step LED rings (A y B) en forma declarativa.
+	// Update both step indicator rings (current step highlight).
 	void updateLedRings(const int currentSteps[2]) {
 		const int ledLeds[2][16] = {
 			{
@@ -427,14 +436,14 @@ struct TL_Seq4 : Module {
 		}
 	}
 
-// --------------------   Main cycle logic  --------------------------------------
+// --------------------   Audio/logic process loop  ------------------------------
 	void process(const ProcessArgs& args) override {
 
-		updateAllInputStates();  // Update inputs values.
-		setStepsLeds(this, latch_a, 8, latch_b, 16);  // Set Latch steps LEDs.
-		readExpanderResets();
+		updateAllInputStates();                 // Pull inputs & update internal states
+		setStepsLeds(this, latch_a, 8, latch_b, 16);  // Write step latch LEDs
+		readExpanderResets();                   // Handle expander reset pulses
 
-		// Seq A.
+		// --- Sequencer A ---
 		totalStepsA = lengthA ? 8 : 4;
 		if (resetAPulse) {
 			gatePulseA.reset();
@@ -449,16 +458,16 @@ struct TL_Seq4 : Module {
 			}
 			
 			if (latch_a[currentStepA]) {
-				gatePulseA.trigger(1e-3f); // 1 ms pulse.
+				gatePulseA.trigger(1e-3f); // 1 ms pulse
 			}
 		}
 		
-		// Generate pulse.
+		// A gate out
 		float gateOutA = gatePulseA.process(args.sampleTime) ? 10.f : 0.f;
 		outputs[OUT_1_OUTPUT].setVoltage(gateOutA);
 
 		
-		// Seq B.
+		// --- Sequencer B ---
 		totalStepsB = lengthB ? 16 : 8;
 		if (resetBPulse) {
 			gatePulseB.reset();
@@ -473,21 +482,22 @@ struct TL_Seq4 : Module {
 			}
 			
 			if (latch_b[currentStepB]) {
-				gatePulseB.trigger(1e-3f); // 1 ms pulse.
+				gatePulseB.trigger(1e-3f); // 1 ms pulse
 			}
 		}
 		
-		// Generate pulse.
+		// B gate out
 		float gateOutB = gatePulseB.process(args.sampleTime) ? 10.f : 0.f;
 		outputs[OUT_2_OUTPUT].setVoltage(gateOutB);
 
+		// LED rings: highlight current steps (A & B)
 		int steps[2] = {currentStepA, currentStepB};
 		updateLedRings(steps);
 	}
 };
 
 
-// --------------------   Visual components  -------------------------------------
+// --------------------   Widget / UI layout  ------------------------------------
 struct TL_Seq4Widget : ModuleWidget {
 	TL_Seq4Widget(TL_Seq4* module) {
 		setModule(module);
@@ -498,7 +508,7 @@ struct TL_Seq4Widget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-		// Sequencer A.
+		// Sequencer A -----------------------------------------------------------
 
 		// Params.
 		addParam(createParamCentered<NKK>(mm2px(Vec(22.535, 33.906)), module, TL_Seq4::LENGTH_1_PARAM));
@@ -518,7 +528,7 @@ struct TL_Seq4Widget : ModuleWidget {
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(83.588, 34.314)), module, TL_Seq4::REVERSE_1_INPUT));
 		// Output.
 		addOutput(createOutputCentered<DarkPJ301MPort>(mm2px(Vec(75.937, 18.496)), module, TL_Seq4::OUT_1_OUTPUT));
-		// LEDs.
+		// LEDs (ring).
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(45.788, 14.285)), module, TL_Seq4::LED_A1_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(54.965, 18.117)), module, TL_Seq4::LED_A2_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(58.743, 27.276)), module, TL_Seq4::LED_A3_LIGHT));
@@ -527,7 +537,7 @@ struct TL_Seq4Widget : ModuleWidget {
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(36.612, 36.437)), module, TL_Seq4::LED_A6_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(32.79, 27.284)), module, TL_Seq4::LED_A7_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(36.612, 18.091)), module, TL_Seq4::LED_A8_LIGHT));
-		// Mini-LEDs.
+		// Mini-LEDs (per step).
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(17.228, 47.927)), module, TL_Seq4::MINILED_A1_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(25.414, 46.848)), module, TL_Seq4::MINILED_A2_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(33.55, 45.891)), module, TL_Seq4::MINILED_A3_LIGHT));
@@ -538,7 +548,7 @@ struct TL_Seq4Widget : ModuleWidget {
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(74.403, 47.96)), module, TL_Seq4::MINILED_A8_LIGHT));
 
 
-		// Sequencer B.
+		// Sequencer B -----------------------------------------------------------
 
 		// Params.
 		addParam(createParamCentered<NKK>(mm2px(Vec(22.496, 84.135)), module, TL_Seq4::LENGTH_2_PARAM));
@@ -567,7 +577,7 @@ struct TL_Seq4Widget : ModuleWidget {
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(83.575, 84.548)), module, TL_Seq4::REVERSE_2_INPUT));
 		// Output.
 		addOutput(createOutputCentered<DarkPJ301MPort>(mm2px(Vec(75.869, 68.816)), module, TL_Seq4::OUT_2_OUTPUT));
-		// LEDs.
+		// LEDs (ring).
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(45.689, 56.925)), module, TL_Seq4::LED_B1_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(52.132, 58.218)), module, TL_Seq4::LED_B2_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(57.672, 61.911)), module, TL_Seq4::LED_B3_LIGHT));
@@ -584,7 +594,7 @@ struct TL_Seq4Widget : ModuleWidget {
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(30.059, 67.37)), module, TL_Seq4::LED_B14_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(33.744, 61.878)), module, TL_Seq4::LED_B15_LIGHT));
 		addChild(createLightCentered<MediumLight<WhiteLight>>(mm2px(Vec(39.215, 58.251)), module, TL_Seq4::LED_B16_LIGHT));
-		// Mini-LEDs.
+		// Mini-LEDs (per step).
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(14.053, 100.315)), module, TL_Seq4::MINILED_B1_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(23.297, 98.707)), module, TL_Seq4::MINILED_B2_LIGHT));
 		addChild(createLightCentered<TinyLight<WhiteLight>>(mm2px(Vec(32.492, 97.749)), module, TL_Seq4::MINILED_B3_LIGHT));
