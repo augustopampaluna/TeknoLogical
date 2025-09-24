@@ -1,7 +1,6 @@
 # TL-Mixes
 
-<img width="602" height="642" alt="tl-mixes" src="https://github.com/user-attachments/assets/ddc18090-4843-4983-b7b1-0904a7f601e0" />
-
+<img width="553" height="581" alt="docu_mixes" src="https://github.com/user-attachments/assets/f4b45c7f-c55b-43fe-9d27-dc20cbc95213" />
 
 A 7-channel mono/stereo audio mixer for VCV Rack 2. Each channel provides High-Pass (CUT), Pan, Volume, Mute, and Solo, with stereo summing, a soft output limiter, a post-fader Master control, and stereo VU meters on the main output.
 
