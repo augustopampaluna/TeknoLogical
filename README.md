@@ -6,17 +6,15 @@
 
 <img width="1880" height="697" alt="Captura de pantalla 2025-09-24 122335" src="https://github.com/user-attachments/assets/778ff262-2037-4067-a99c-ea0050b1794c" />
 
-**TeknoLogical** is a collection of **VCV Rack 2** modules designed for live minimal techno performance.
+## Overview
 
-Each module is a purpose-built tool focused on generating and developing rhythmic and melodic patterns through sequencing, tone generation, and controlled randomization. The collection is curated to enable complete performances with minimal external dependencies, offering a streamlined, cohesive, and instantly playable system.
+**TeknoLogical** is a focused set of VCV Rack 2 modules shaped for **live minimal techno**. The goal is simple: a compact, coherent instrument that feels immediate and reliable on stage.
 
-> ⚠️ **Note:** These modules are not general-purpose tools. They are intentionally limited in scope and sound design options.
+Each module is streamlined for **rhythmic and melodic pattern work**—sequencing, tone shaping, and controlled variation—so you can build grooves quickly and stay in the musical flow. The set is curated to work as a whole, enabling complete performances with minimal external dependencies.
 
-These modules are toward a specific sonic aesthetic—**a consistent, minimal techno sound**. For example, the modules that included samples are not meant to be swapped or customized.
+> **Heads‑up:** TeknoLogical is a **purpose-built instrument**, not a general‑purpose toolkit. Some modules use fixed samples or intentionally narrowed controls to maintain a **consistent sonic character** and a fast, performance‑first workflow.
 
-The direction of this project is not driven by a desire for maximum flexibility or versatility. Instead, the focus is on musical constraint, immediacy, and coherence—qualities I find essential for live techno performance.
-
-**TeknoLogical** tries to be something different: a minimal instrument for a focused purpose.
+This project favors **musical constraint, immediacy, and coherence**—qualities that help keep live techno tight, expressive, and dependable. If that focus resonates with you, welcome aboard.
 
 ---
 
@@ -38,4 +36,3 @@ The direction of this project is not driven by a desire for maximum flexibility 
 
 2. Build it using the VCV Rack Plugin Development Toolchain:
    See the official guide: [VCV Rack Plugin Development](https://vcvrack.com/manual/PluginDevelopmentTutorial)
-
