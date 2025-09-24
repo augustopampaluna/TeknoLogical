@@ -1,89 +1,159 @@
 #pragma once
 #include "rack.hpp"
 #include "dsp/filter.hpp"
+#include <algorithm>
+#include <cmath>
+
 using namespace rack;
 
-
-// General DSP.
 namespace DSPUtils {
 
-    struct LowPassFilter {
-        float y = 0.f;
-        float alpha = 1.f;
+    // Small helper: checks if two floats differ more than epsilon.
+    inline bool changedEnough(float a, float b, float eps = 1e-4f) {
+        return std::fabs(a - b) > eps;
+    }
 
-        void setCutoff(float cutoff, float sampleRate) {
-            float rc = 1.f / (2.f * M_PI * cutoff);
+    // Equal-power panning gains for mono->stereo (pan in [-1..1]).
+    inline void equalPowerGains(float pan, float& gL, float& gR) {
+        float theta = (clamp(pan, -1.f, 1.f) * 0.5f + 0.5f) * (float)M_PI_2;
+        gL = std::cos(theta);
+        gR = std::sin(theta);
+    }
+
+    // Equal-power attenuation factor for stereo balance (pan in [-1..1]).
+    inline float equalPowerAttenuation(float pan /* -1..1 */) {
+        float theta = std::fabs(clamp(pan, -1.f, 1.f)) * (float)M_PI_2;
+        return std::cos(theta);
+    }
+
+    // Simple 1st-order high-pass (DC blocker / tilt remover).
+    struct HP1 {
+        float a = 0.f, y1 = 0.f, x1 = 0.f;
+        void setCutoff(float fc, float sampleRate) {
+            fc = std::max(1.f, fc);
             float dt = 1.f / sampleRate;
-            alpha = dt / (rc + dt);
-            alpha = clamp(alpha, 0.f, 1.f);
+            float RC = 1.f / (2.f * float(M_PI) * fc);
+            a = RC / (RC + dt);
+        }
+        inline float process(float x) {
+            float y = a * (y1 + x - x1);
+            y1 = y; x1 = x;
+            return y;
+        }
+        void reset(){ y1 = x1 = 0.f; }
+    };
+
+    // 2nd-order low-pass (RBJ biquad) with configurable Q (resonance).
+    struct LowPassFilter {
+        float b0=1.f, b1=0.f, b2=0.f, a1=0.f, a2=0.f;
+        float z1=0.f, z2=0.f;
+
+        // Q defaults to ~0.707 (Butterworth). Use higher Q for “peaky” response.
+        void setCutoff(float cutoff, float sampleRate, float Q = 0.707f) {
+            cutoff = std::max(20.f, cutoff);
+            float w0 = 2.f * (float)M_PI * cutoff / sampleRate;
+            float c = std::cos(w0);
+            float s = std::sin(w0);
+            float alpha = s / (2.f * std::max(0.0001f, Q));
+
+            float b0n = (1.f - c) * 0.5f;
+            float b1n = (1.f - c);
+            float b2n = (1.f - c) * 0.5f;
+            float a0  = 1.f + alpha;
+            float a1n = -2.f * c;
+            float a2n = 1.f - alpha;
+
+            b0 = b0n / a0; b1 = b1n / a0; b2 = b2n / a0;
+            a1 = a1n / a0; a2 = a2n / a0;
         }
 
-        float process(float input) {
-            y += alpha * (input - y);
+        // Direct Form II Transposed processing.
+        inline float process(float x) {
+            float y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
             return y;
         }
     };
 
+    // 2nd-order high-pass (RBJ biquad) with configurable Q (resonance).
     struct HighPassFilter {
-        float y = 0.f;
-        float x = 0.f;
-        float alpha = 1.f;
+        float b0=1.f, b1=0.f, b2=0.f, a1=0.f, a2=0.f;
+        float z1=0.f, z2=0.f;
 
-        void setCutoff(float cutoff, float sampleRate) {
-            float rc = 1.f / (2.f * M_PI * cutoff);
-            float dt = 1.f / sampleRate;
-            alpha = rc / (rc + dt);
-            alpha = clamp(alpha, 0.f, 1.f);
+        // Q defaults to ~0.707 (Butterworth). Use higher Q for “peaky” response.
+        void setCutoff(float cutoff, float sampleRate, float Q = 0.707f) {
+            cutoff = std::max(20.f, cutoff);
+            float w0 = 2.f * (float)M_PI * cutoff / sampleRate;
+            float c = std::cos(w0);
+            float s = std::sin(w0);
+            float alpha = s / (2.f * std::max(0.0001f, Q));
+
+            float b0n = (1.f + c) * 0.5f;
+            float b1n = -(1.f + c);
+            float b2n = (1.f + c) * 0.5f;
+            float a0  = 1.f + alpha;
+            float a1n = -2.f * c;
+            float a2n = 1.f - alpha;
+
+            b0 = b0n / a0; b1 = b1n / a0; b2 = b2n / a0;
+            a1 = a1n / a0; a2 = a2n / a0;
         }
 
-        float process(float input) {
-            float out = alpha * (y + input - x);
-            x = input;
-            y = out;
-            return out;
+        // Direct Form II Transposed processing.
+        inline float process(float x) {
+            float y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            return y;
         }
     };
 
+    // Simple exponential decay envelope (one-shot).
     struct DecayEnvelope {
-        float value = 0.f;
-        float decayCoeff = 0.f;
-
+        float value = 0.f, decayCoeff = 0.f;
         void trigger(float decayParam, float sampleRate) {
-            // Mapear decayParam de [-10, +10] a [0.005, 2.0] segundos (logarítmico)
-            const float minTime = 0.08f;
-            const float maxTime = 0.8f;
+            const float minTime = 0.08f, maxTime = 0.8f;
             float normalized = (decayParam + 10.f) / 20.f;
-            float decayTime = minTime * std::pow(maxTime / minTime, normalized); // escala logarítmica
-
-            // Evitar división por cero
+            float decayTime = minTime * std::pow(maxTime / minTime, normalized);
             decayTime = std::max(decayTime, 0.001f);
             decayCoeff = std::exp(-1.f / (decayTime * sampleRate));
             value = 1.f;
         }
-
-
-        float process() {
-            value *= decayCoeff;
-            return value;
-        }
-
-        bool isActive() const {
-            return value > 0.001f;
-        }
+        float process() { value *= decayCoeff; return value; }
+        bool isActive() const { return value > 0.001f; }
     };
 
+    // Map macro-filter param (-10..0) to LP cutoff in Hz (log curve).
+    inline float mapLP_Cutoff(float filterParam /* -10..0 */, float sr) {
+        return std::pow(10.f, rescale(filterParam, -10.f, 0.f, std::log10(20.f), std::log10(20000.f)));
+    }
+    // Map macro-filter param (0..+10) to HP cutoff in Hz (log curve).
+    inline float mapHP_Cutoff(float filterParam /* 0..+10 */, float sr) {
+        return std::pow(10.f, rescale(filterParam, 0.f, 10.f, std::log10(20.f), std::log10(20000.f)));
+    }
+    // Map distance-from-center (0..1) to resonance Q (center: low Q, edges: higher Q).
+    inline float mapResonanceQ(float amount01) {
+        const float Qmin = 0.707f;
+        const float Qmax = 2.5f;
+        const float shape = 1.35f;
+        float t = std::pow(clamp(amount01, 0.f, 1.f), shape);
+        return Qmin + (Qmax - Qmin) * t;
+    }
+
+    // LP biquad with cached coeffs (recompute on param or SR change).
     struct CachedLowPass {
         LowPassFilter filter;
-        float lastParam = 999.f;
-        float lastSampleRate = 0.f;
+        float lastParam = 999.f, lastSampleRate = 0.f;
 
         float process(float input, float filterParam, float sampleRate) {
             if (filterParam < 0.f) {
                 if (filterParam != lastParam || sampleRate != lastSampleRate) {
-                    float cutoffFreq = std::pow(10.f, rescale(filterParam, -10.f, 0.f, std::log10(20.f), std::log10(20000.f)));
-                    filter.setCutoff(cutoffFreq, sampleRate);
-                    lastParam = filterParam;
-                    lastSampleRate = sampleRate;
+                    float cutoff = mapLP_Cutoff(filterParam, sampleRate);
+                    float amount = (-filterParam) / 10.f;  // 0..1
+                    float Q = mapResonanceQ(amount);
+                    filter.setCutoff(cutoff, sampleRate, Q);
+                    lastParam = filterParam; lastSampleRate = sampleRate;
                 }
                 return filter.process(input);
             }
@@ -91,18 +161,19 @@ namespace DSPUtils {
         }
     };
 
+    // HP biquad with cached coeffs (recompute on param or SR change).
     struct CachedHighPass {
         HighPassFilter filter;
-        float lastParam = -999.f;
-        float lastSampleRate = 0.f;
+        float lastParam = -999.f, lastSampleRate = 0.f;
 
         float process(float input, float filterParam, float sampleRate) {
             if (filterParam > 0.f) {
                 if (filterParam != lastParam || sampleRate != lastSampleRate) {
-                    float cutoffFreq = std::pow(10.f, rescale(filterParam, 0.f, 10.f, std::log10(20.f), std::log10(20000.f)));
-                    filter.setCutoff(cutoffFreq, sampleRate);
-                    lastParam = filterParam;
-                    lastSampleRate = sampleRate;
+                    float cutoff = mapHP_Cutoff(filterParam, sampleRate);
+                    float amount = (filterParam) / 10.f; // 0..1
+                    float Q = mapResonanceQ(amount);
+                    filter.setCutoff(cutoff, sampleRate, Q);
+                    lastParam = filterParam; lastSampleRate = sampleRate;
                 }
                 return filter.process(input);
             }
@@ -110,45 +181,87 @@ namespace DSPUtils {
         }
     };
 
+    // Utility: volume knob [0..10] to linear gain [0..1].
+    inline float applyVolume(float signal, float volumeParam) {
+        float gain = clamp(volumeParam / 10.f, 0.f, 1.f);
+        return signal * gain;
+    }
 
-	inline float applyVolume(float signal, float volumeParam) {
-		float gain = clamp(volumeParam / 10.f, 0.f, 1.f);  // volumen normalizado [0..1]
-		return signal * gain;
-	}
+    // Utility: linear pan (mono->stereo) for legacy paths.
+    inline void applyPan(float input, float panParam, float& left, float& right) {
+        float pan = clamp(panParam, -1.f, 1.f);
+        left  = input * (pan <= 0.f ? 1.f : 1.f - pan);
+        right = input * (pan >= 0.f ? 1.f : 1.f + pan);
+    }
 
-	inline void applyPan(float input, float panParam, float& left, float& right) {
-		// Pan simple con pan en [-1, 1]
-		float pan = clamp(panParam, -1.f, 1.f);
-		left  = input * (pan <= 0.f ? 1.f : 1.f - pan);
-		right = input * (pan >= 0.f ? 1.f : 1.f + pan);
-	}
+    // Utility: simple boost with clamp.
+    inline float applyBoost(float signal, float push) {
+        if (push == 1.0f) {
+            float boosted = signal * 1.5f;
+            return clamp(boosted, -1.f, 1.f);
+        }
+        return signal;
+    }
 
-	inline float applyBoost(float signal, float push) {
-		if (push == 1.0f) {
-			float boosted = signal * 1.5f;
-			return clamp(boosted, -1.f, 1.f);  // o -5.f, 5.f según tu rango
-		}
-		return signal;
-	}
-
+    // One-shot LP application with dynamic Q (macro filter use).
     inline float applyLowPassFilter(float input, float filterParam, float sampleRate, LowPassFilter& filter) {
         if (filterParam < 0.f) {
-            // Mapeo logarítmico: -10..0 → 50..20000 Hz
-            float cutoffFreq = std::pow(10.f, rescale(filterParam, -10.f, 0.f, std::log10(20.f), std::log10(20000.f)));
-            filter.setCutoff(cutoffFreq, sampleRate);
+            float cutoff = mapLP_Cutoff(filterParam, sampleRate);
+            float amount = (-filterParam) / 10.f; // 0..1
+            float Q = mapResonanceQ(amount);
+            filter.setCutoff(cutoff, sampleRate, Q);
             return filter.process(input);
         }
         return input;
     }
 
+    // One-shot HP application with dynamic Q (macro filter use).
     inline float applyHighPassFilter(float input, float filterParam, float sampleRate, HighPassFilter& filter) {
         if (filterParam > 0.f) {
-            // Mapeo logarítmico: 0..+10 → 20..20000 Hz
-            float cutoffFreq = std::pow(10.f, rescale(filterParam, 0.f, 10.f, std::log10(20.f), std::log10(20000.f)));
-            filter.setCutoff(cutoffFreq, sampleRate);
+            float cutoff = mapHP_Cutoff(filterParam, sampleRate);
+            float amount = (filterParam) / 10.f; // 0..1
+            float Q = mapResonanceQ(amount);
+            filter.setCutoff(cutoff, sampleRate, Q);
             return filter.process(input);
         }
         return input;
+    }
+
+    // Equal-power mono->stereo panner (accumulates into L/R).
+    inline void panMonoEqualPower(float in, float pan /* -1..1 */, float& l, float& r) {
+        float gl, gr; equalPowerGains(pan, gl, gr);
+        l += in * gl; r += in * gr;
+    }
+
+    // Equal-power stereo balance (attenuates one side).
+    inline void balanceStereoEqualPower(float& l, float& r, float pan /* -1..1 */) {
+        float g = equalPowerAttenuation(pan);
+        if (pan > 0.f) l *= g;
+        else if (pan < 0.f) r *= g;
+    }
+
+    // Soft limiter targeting ±5 V nominal levels.
+    inline float softLimit5V(float x) {
+    #ifdef DSP_FAST_LIMIT
+        float y = x - (x * x * x) / (75.f);
+        return clamp(y, -5.f, 5.f);
+    #else
+        return 5.f * std::tanh(x / 5.f);
+    #endif
+    }
+
+    // Resolve volume from knob [0..10] and optional CV [0..10 V].
+    inline float resolveVolume01(float knob0to10, bool cvConnected, float cvVolts0to10) {
+        float volMax = clamp(knob0to10 / 10.f, 0.f, 1.f);
+        if (!cvConnected) return volMax;
+        float v = clamp(cvVolts0to10, 0.f, 10.f) / 10.f;
+        return volMax * v;
+    }
+
+    // Resolve pan from knob [-1..1] or CV ±5 V (CV overrides knob).
+    inline float resolvePanMinus1to1(float knobMinus1to1, bool cvConnected, float cvVoltsPlusMinus5) {
+        if (!cvConnected) return clamp(knobMinus1to1, -1.f, 1.f);
+        return clamp(cvVoltsPlusMinus5 / 5.f, -1.f, 1.f);
     }
 
 }

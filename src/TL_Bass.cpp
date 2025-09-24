@@ -4,72 +4,69 @@
 using namespace rack;
 using namespace DSPUtils;
 
-// -----------------------------
-// PolyBLEP oscillator:
-// one single advance() per sample, shape reads do NOT advance.
-// -----------------------------
+// -----------------------------------------------------------------------------
+// PolyBLEP oscillator (one advance() per sample; shape reads do not advance).
+// Maintains main phase and a sub-octave phase. Caches dt to avoid recompute.
+// -----------------------------------------------------------------------------
 struct PolyBLEPOsc {
 	float phase = 0.f;     // [0,1)
 	float subPhase = 0.f;  // sub at -1 octave
 	float freq = 100.f;    // Hz
 	float sr = 44100.f;
-	float lastDt = 100.f / 44100.f; // CHANGE: cache dt for shape reads
+	float lastDt = 100.f / 44100.f; // cached phase increment
 
 	void setSampleRate(float s) {
 		sr = s;
-		lastDt = freq / sr; // keep coherent
+		lastDt = freq / sr; // keep coherent with freq
 	}
 
 	void setFreq(float f) {
 		freq = clamp(f, 10.f, 12000.f);
-		lastDt = freq / sr; // CHANGE: keep dt updated
+		lastDt = freq / sr; // keep dt updated on freq change
 	}
 
 	void resetPhase() { phase = 0.f; subPhase = 0.f; }
 
-	// Static because we call it from const methods.
+	// PolyBLEP step for discontinuity correction (static: used by const reads).
 	static inline float polyblep(float t, float dt) {
 		if (t < dt) { t /= dt; return t + t - t * t - 1.f; }
 		if (t > 1.f - dt) { t = (t - 1.f) / dt; return t * t + t + t + 1.f; }
 		return 0.f;
 	}
 
+	// Single-advance per sample (main + sub octave).
 	inline void advance() {
-		// CHANGE: use cached dt and update after freq changes
 		float dt = lastDt;
 		phase += dt; if (phase >= 1.f) phase -= 1.f;
-		// sub one octave below (half the frequency)
 		float subDt = 0.5f * dt;
 		subPhase += subDt; if (subPhase >= 1.f) subPhase -= 1.f;
 	}
 
-	// Shape reads (phase is not advanced)
+	// Readouts (no phase advance).
 	inline float sine() const {
 		return std::sin(2.f * M_PI * phase);
 	}
 
-	// Naive triangle from current phase
+	// Naive triangle
 	inline float triangle() const {
-		// 2*|2*phase-1|-1  -> [-1, +1]
 		float t = 2.f * phase - 1.f;
 		return 2.f * std::fabs(t) - 1.f;
 	}
 
-	// BLEP saw from current phase
+	// BLEP saw
 	inline float sawBLEP() const {
-		float dt = lastDt; // CHANGE: reuse cached dt
+		float dt = lastDt;
 		float x = 2.f * phase - 1.f;
 		return x - polyblep(phase, dt);
 	}
 
+	// BLEP square with PWM (two BLEP edges)
 	inline float squareBLEP(float pwm = 0.5f) const {
 		pwm = clamp(pwm, 0.05f, 0.95f);
-		float dt = lastDt; // CHANGE: reuse cached dt
+		float dt = lastDt;
 		float y = (phase < pwm) ? 1.f : -1.f;
 		y += polyblep(phase, dt);
-
-		// CHANGE: avoid std::fmod() – manual wrap is faster
-		float t = phase - pwm;
+		float t = phase - pwm; // manual wrap
 		if (t < 0.f) t += 1.f;
 		y -= polyblep(t, dt);
 		return y;
@@ -80,9 +77,11 @@ struct PolyBLEPOsc {
 	}
 };
 
-// -----------------------------
-// Module
-// -----------------------------
+// -----------------------------------------------------------------------------
+// Module: mono bass voice with macro DJ-style filter and two timbres.
+// - PolyBLEP core, decay envelope, anti-click micro-attack.
+// - Macro filter: center=bypass; left=LP; right=HP (with dynamic-Q in DSP).
+// -----------------------------------------------------------------------------
 struct TL_Bass : Module {
 	enum ParamId {
 		BTN_TRIG_PARAM,
@@ -101,36 +100,36 @@ struct TL_Bass : Module {
 	enum OutputId { OUT_MONO_OUTPUT, OUTPUTS_LEN };
 	enum LightId { BTN_TRIG_LIGHT, LIGHTS_LEN };
 
-	// DSP state
+	// --- DSP state (triggers, oscillator) ---
 	dsp::SchmittTrigger trigIn, trigBtn;
 	PolyBLEPOsc osc;
 
-	// Envelopes
-	DecayEnvelope env; // main D envelope
-	float atkEnv = 1.f; // anti-click micro attack
+	// --- Envelopes / anti-click ---
+	DecayEnvelope env; // main D-envelope
+	float atkEnv = 1.f; // micro attack state
 	float atkCoeff = 1.f;
 	float env2 = 0.f;     // reserved
 	float env2Coeff = 0.999f;
 
-	// Macro filter (LP and HP cached stages)
+	// --- Macro filter stages (cached) ---
 	CachedLowPass  lowFilter;
 	CachedHighPass highFilter;
 
-	// Fixed tone stages for timbre 2 (pre/post)
+	// --- Timbre 2 tone stages (fixed) ---
 	HighPassFilter preT2HP;   // tighten < ~50 Hz
 	LowPassFilter  postT2LP;  // soften > ~6 kHz
 
-	// DC-block
+	// --- DC blocker ---
 	HighPassFilter dcBlock;
 
-	// V/Oct handling
+	// --- V/Oct handling ---
 	bool voctWasConnected = false;
 
-	// 0 V = 440 Hz; “default” C2 ≈ 65.406 Hz -> offset ≈ -2.75 V
+	// 0 V = 440 Hz; default pitch offset so C2 ~ 65.4 Hz
 	static constexpr float BASE_V_DEFAULT = -2.75f;
 
-	// Optional trigger LED holder
-	dsp::PulseGenerator trigLed; // CHANGE: keep LED on for a short pulse
+	// Trigger LED pulse holder
+	dsp::PulseGenerator trigLed;
 
 	TL_Bass() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -146,6 +145,9 @@ struct TL_Bass : Module {
 		configOutput(OUT_MONO_OUTPUT,   "Mono");
 	}
 
+	// -------------------------------------------------------------------------
+	// SR-dependent setup (oscillator rate, DC blocker, time constants, tone).
+	// -------------------------------------------------------------------------
 	void onSampleRateChange() override {
 		float sr = APP->engine->getSampleRate();
 		osc.setSampleRate(sr);
@@ -160,35 +162,38 @@ struct TL_Bass : Module {
 		preT2HP.setCutoff(45.f, sr);    // trim ultra-low rumble
 		postT2LP.setCutoff(6000.f, sr); // round the harsh top
 
-		// CHANGE: compute env2Coeff once (reserved envelope)
+		// Reserved envelope (precomputed coeff)
 		env2Coeff = std::exp(-1.f / (0.003f * sr));
 	}
 
+	// -------------------------------------------------------------------------
+	// Process: trigger handling, pitch, oscillator, timbre, macro filter, VCA.
+	// -------------------------------------------------------------------------
 	void process(const ProcessArgs& args) override {
 		const float sr = args.sampleRate;
 
-		// --- Trigger from jack and button
+		// --- Trigger from jack and button (edge detection) ---
 		bool fired = false;
 		const bool trigConnected = inputs[TRIGGER_JACK_INPUT].isConnected();
 		if (trigConnected) {
-			// CHANGE: explicit thresholds per Voltage Standards (avoid false retriggers)
+			// Conservative thresholds to avoid false retriggers
 			fired |= trigIn.process(inputs[TRIGGER_JACK_INPUT].getVoltage(), 0.1f, 1.f);
 		}
-		// Button has 0..1 V; the same thresholds work fine
+		// Button uses similar thresholds (0..1 V)
 		fired |= trigBtn.process(params[BTN_TRIG_PARAM].getValue(), 0.1f, 1.f);
 
-		// Detect V/Oct unplug -> retrigger default note
+		// Retrigger on V/Oct unplug event (restore default note)
 		const bool voctNow = inputs[VOCT_JACK_INPUT].isConnected();
 		if (voctWasConnected && !voctNow) {
 			fired = true;
 		}
 		voctWasConnected = voctNow;
 
-		// CHANGE: keep LED on for ~1 ms when fired (visual feedback)
+		// Short LED pulse on trigger
 		if (fired) trigLed.trigger(1e-3f);
 		lights[BTN_TRIG_LIGHT].setBrightness(trigLed.process(args.sampleTime) ? 1.f : 0.f);
 
-		// --- Decay (knob + CV)
+		// --- Decay (knob + CV) ---
 		const bool decayCvConnected = inputs[DECAY_JACK_INPUT].isConnected();
 		float decayParam = params[DECAY_KNOB_PARAM].getValue()
 			+ (decayCvConnected ? inputs[DECAY_JACK_INPUT].getVoltage() : 0.f);
@@ -196,23 +201,20 @@ struct TL_Bass : Module {
 
 		if (fired) {
 			env.trigger(decayParam, sr);
-			// Anti-click: start attack at 0 (rise to 1 in ~0.5 ms)
-			atkEnv = 0.f;
-			// If you prefer identical phase per hit, uncomment:
-			// osc.resetPhase();
+			atkEnv = 0.f; // start micro attack
 		}
 
-		// --- Pitch 1 V/oct clamped to ±2 oct
+		// --- Pitch (1 V/oct, clamped ±2 oct) ---
 		const float pitchIn = voctNow ? clamp(inputs[VOCT_JACK_INPUT].getVoltage(), -2.f, 2.f) : 0.f;
-		const float pitchV  = BASE_V_DEFAULT + pitchIn;  // base C2 + limited deviation
+		const float pitchV  = BASE_V_DEFAULT + pitchIn;
 
-		// CHANGE: faster 2^x and safer freq ceiling wrt SR
-		float freq = 440.f * dsp::exp2_taylor5(pitchV); // faster than pow(2, x)
+		// Fast 2^x and Nyquist-safe ceiling
+		float freq = 440.f * dsp::exp2_taylor5(pitchV);
 		const float nyqSafe = 0.45f * sr;
 		if (freq > nyqSafe) freq = nyqSafe;
 		osc.setFreq(freq);
 
-		// Advance once, then read all shapes from the same phase
+		// --- Oscillator: advance once, read all shapes ---
 		osc.advance();
 		const float s   = osc.sine();
 		const float tr  = osc.triangle();
@@ -220,30 +222,29 @@ struct TL_Bass : Module {
 		const float sq  = osc.squareBLEP(0.48f);
 		const float sw  = osc.sawBLEP();
 
-		// Switch: value > 0.5 means position "1" (clean)
+		// Panel switch: > 0.5 => timbre "1" (clean)
 		const bool pos1_clean = params[TIMBRE_SELECTOR_PARAM].getValue() > 0.5f;
 
-		// --- Timbres
+		// --- Timbre paths (pre) ---
 		float pre = 0.f;
 		if (pos1_clean) {
-			// POSITION 1: clean (near-sine)
+			// Timbre 1: near-sine with slight soft drive
 			const float clean = 0.90f * s + 0.10f * tr;
-			pre = std::tanh(1.05f * clean); // tiny drive
+			pre = std::tanh(1.05f * clean);
 		} else {
-			// POSITION 2: Music-Man-like (aggressive, fat, warm)
-			float mixCore = 0.55f * sq + 0.45f * sw;   // body + bite
-			mixCore = preT2HP.process(mixCore);        // tighten <~45 Hz
-			mixCore = 0.85f * mixCore + 0.15f * sub;   // subtle sub for weight
-			const float shaped = std::tanh(1.40f * mixCore) * 0.9f + 0.1f * mixCore; // warm shaper
-			pre = postT2LP.process(shaped);            // round highs
+			// Timbre 2: aggressive “MM”-style blend + tone shaping
+			float mixCore = 0.55f * sq + 0.45f * sw;
+			mixCore = preT2HP.process(mixCore);
+			mixCore = 0.85f * mixCore + 0.15f * sub;
+			const float shaped = std::tanh(1.40f * mixCore) * 0.9f + 0.1f * mixCore;
+			pre = postT2LP.process(shaped);
 		}
 
-		// --- Envelopes
+		// --- Envelopes / anti-click ---
 		const float e = env.process();
-		// Anti-click exponential attack towards 1
 		atkEnv = 1.f - (1.f - atkEnv) * atkCoeff;
 
-		// --- Macro filter (−10..0 LP | 0..+10 HP | 0=bypass)
+		// --- Macro filter (LP<0 | bypass=0 | >0 HP) ---
 		const bool filtCvConnected = inputs[FILTER_JACK_INPUT].isConnected();
 		float filterVal = params[FILTER_KNOB_PARAM].getValue()
 			+ (filtCvConnected ? inputs[FILTER_JACK_INPUT].getVoltage() : 0.f);
@@ -253,26 +254,18 @@ struct TL_Bass : Module {
 		x = lowFilter.process(x,  filterVal, sr);
 		x = highFilter.process(x, filterVal, sr);
 
-		// --- VCA + anti-click
+		// --- VCA + anti-click, DC block, scaling, output ---
 		float out = x * e * atkEnv;
-
-		// --- DC-block and output normalization
 		out = dcBlock.process(out);
-
-		// CHANGE (optional): prefer soft limiting or a wider safe range
-		// Hard-clamp removed to avoid unnecessary hard clipping (see Voltage Standards).
-		// If you strictly need ±5 V, soft clip:
-		// out = 5.f * std::tanh(out);
-		// Otherwise keep within a safe Eurorack-ish bound:
 		out = clamp(out * 5.f, -11.7f, 11.7f);
 
 		outputs[OUT_MONO_OUTPUT].setVoltage(out);
 	}
 };
 
-// -----------------------------
-// Widget (unchanged)
-// -----------------------------
+// -----------------------------------------------------------------------------
+// Widget (panel & controls layout).
+// -----------------------------------------------------------------------------
 struct TL_BassWidget : ModuleWidget {
 	TL_BassWidget(TL_Bass* module) {
 		setModule(module);

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="6.0999999"
+   height="9.6000004"
+   viewBox="0 0 6.0999999 9.6000004"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="MasterHSlider-handle.svg"
+   inkscape:version="1.4 (86a8ad7, 2024-10-11)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:zoom="45.254834"
+     inkscape:cx="4.1984465"
+     inkscape:cy="1.5799417"
+     inkscape:window-width="1920"
+     inkscape:window-height="1051"
+     inkscape:window-x="-9"
+     inkscape:window-y="-9"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg1" />
+  <rect
+     x="0.41282794"
+     y="0.42721853"
+     width="5.2817178"
+     height="8.7661619"
+     rx="2.5954969"
+     ry="2.190469"
+     fill="#f2f2f2"
+     stroke="#3a3a3a"
+     stroke-width="0.626904"
+     id="rect1"
+     style="fill:#ffffff;fill-opacity:1;stroke:#0a0a0a;stroke-width:0.816026;stroke-linecap:butt;stroke-linejoin:bevel;stroke-dasharray:none;stroke-opacity:1;paint-order:normal" />
+</svg>

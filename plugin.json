@@ -1,7 +1,7 @@
 {
   "slug": "TeknoLogical",
   "name": "TeknoLogical",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "license": "GPL-3.0-or-later",
   "brand": "TeknoLogical",
   "author": "AgostoSound",
@@ -45,6 +45,16 @@
       "description": "Automatic bass trigger.",
       "tags": [
         "Sampler"
+      ]
+    },
+    {
+      "slug": "TL_Mixes",
+      "name": "TL_Mixes",
+      "description": "7 channel stereo mixer.",
+      "tags": [
+        "Filter",
+        "Mixer",
+        "Panning"
       ]
     }
   ]
