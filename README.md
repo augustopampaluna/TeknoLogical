@@ -2,7 +2,9 @@
 
 **TeknoLogical** is a collection of **VCV Rack 2** modules for live minimal techno.
 
-<img width="1903" height="736" alt="Captura de pantalla 2025-09-20 152329" src="https://github.com/user-attachments/assets/2fc52c79-6d2f-42ea-b83c-bc501c90ce39" />
+<img width="309" height="124" alt="tecnologo" src="https://github.com/user-attachments/assets/c6f54a3b-7187-4efb-88aa-6d7e0b78abd8" />
+
+<img width="1880" height="697" alt="Captura de pantalla 2025-09-24 122335" src="https://github.com/user-attachments/assets/778ff262-2037-4067-a99c-ea0050b1794c" />
 
 **TeknoLogical** is a collection of **VCV Rack 2** modules designed for live minimal techno performance.
 
