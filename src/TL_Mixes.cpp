@@ -5,28 +5,9 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include "../helpers/dsp_utils.hpp"
 
 using namespace rack;
-
-// ===== Helper: simple first‑order high‑pass (per channel / per side) =====
-struct HP1 {
-	float a = 0.f; // coefficient
-	float y1 = 0.f; // y[n-1]
-	float x1 = 0.f; // x[n-1]
-	void setCutoff(float fc, float sampleRate) {
-		fc = std::max(1.f, fc);
-		float dt = 1.f / sampleRate;
-		float RC = 1.f / (2.f * float(M_PI) * fc);
-		a = RC / (RC + dt);
-	}
-	inline float process(float x) {
-		float y = a * (y1 + x - x1);
-		y1 = y;
-		x1 = x;
-		return y;
-	}
-	void reset(){ y1 = x1 = 0.f; }
-};
 
 struct TL_Mixes : Module {
 	enum ParamId {
@@ -57,15 +38,17 @@ struct TL_Mixes : Module {
 
 	// ===== Runtime state =====
 	static constexpr int CH = 7;
+	
 	// One HP per side per channel
-	HP1 hpL[CH];
-	HP1 hpR[CH];
+	DSPUtils::HP1 hpL[CH];
+	DSPUtils::HP1 hpR[CH];
+	
 	// master meter smoothing
 	float vuL = 0.f, vuR = 0.f;
 	float sampleRate = 44100.f;
 
-	// fixed high‑pass cutoff for CUT ("quita graves")
-	float cutHz = 150.f;
+	// fixed high-pass cutoff for CUT.
+	float cutHz = 180.f;
 
 	TL_Mixes() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -136,28 +119,6 @@ struct TL_Mixes : Module {
 		for (int i = 0; i < CH; ++i) { hpL[i].reset(); hpR[i].reset(); }
 	}
 
-	// Equal‑power pan (mono source)
-	static inline void panMono(float in, float pan, float& l, float& r) {
-		// pan in [-1,1];
-		float theta = (pan * 0.5f + 0.5f) * (float)M_PI_2; // 0..PI/2
-		float gl = std::cos(theta);
-		float gr = std::sin(theta);
-		l += in * gl;
-		r += in * gr;
-	}
-
-	// Balance for stereo sources: pan<0 attenuates R, pan>0 attenuates L
-	static inline void balanceStereo(float& l, float& r, float pan) {
-		float theta = std::fabs(pan) * (float)M_PI_2; // 0..PI/2
-		float g = std::cos(theta); // equal‑power
-		if (pan > 0.f) l *= g; else if (pan < 0.f) r *= g;
-	}
-
-	// Simple soft limiter to ~±5 V using tanh
-	static inline float softLimit(float x) {
-		return 5.f * std::tanh(x / 5.f);
-	}
-
 	void process(const ProcessArgs& args) override {
 		// ensure HP is configured
 		if (args.sampleRate != sampleRate) {
@@ -205,51 +166,50 @@ struct TL_Mixes : Module {
 			}
 
 			// Volume — knob sets maximum, CV overrides absolute within 0..max
-			float volMax = clamp(params[VOL_1_PARAM + c].getValue() / 10.f, 0.f, 1.f);
-			float vol = volMax;
-			if (inputs[VOL_IN_1_INPUT + c].isConnected()) {
-				float v = clamp(inputs[VOL_IN_1_INPUT + c].getVoltage(), 0.f, 10.f) / 10.f; // 0..1
-				vol = volMax * v;
-			}
+			float vol = DSPUtils::resolveVolume01(
+			    params[VOL_1_PARAM + c].getValue(),
+			    inputs[VOL_IN_1_INPUT + c].isConnected(),
+			    inputs[VOL_IN_1_INPUT + c].getVoltage()
+			);
 
 			// Pan — CV fully overrides knob
-			float pan = params[PAN_1_PARAM + c].getValue(); // -1..1
-			if (inputs[PAN_IN_1_INPUT + c].isConnected()) {
-				pan = clamp(inputs[PAN_IN_1_INPUT + c].getVoltage() / 5.f, -1.f, 1.f);
-			}
+			float pan = DSPUtils::resolvePanMinus1to1(
+			    params[PAN_1_PARAM + c].getValue(),
+			    inputs[PAN_IN_1_INPUT + c].isConnected(),
+			    inputs[PAN_IN_1_INPUT + c].getVoltage()
+			);
 
-			// Apply per‑channel gain
+			// Apply per-channel gain
 			inL *= vol;
 			inR *= vol;
 
 			// Apply panning only when the channel behaves as mono; if both inputs present, treat as balance
 			if (inputs[L_IN_1_INPUT + c].isConnected() && inputs[R_IN_1_INPUT + c].isConnected()) {
 				float l = inL, r = inR;
-				balanceStereo(l, r, pan);
+				DSPUtils::balanceStereoEqualPower(l, r, pan);
 				mixL += l;
 				mixR += r;
 			}
 			else {
-				// mono -> stereo with equal‑power pan
+				// mono -> stereo with equal-power pan
 				float mono = 0.5f * (inL + inR);
-				panMono(mono, pan, mixL, mixR);
+				DSPUtils::panMonoEqualPower(mono, pan, mixL, mixR);
 			}
 		}
 
-		// Master gain
+		// Master gain (0..1) applied pre-limiter
 		float master = clamp(params[MASTER_PARAM].getValue() / 100.f, 0.f, 1.f);
 		mixL *= master;
 		mixR *= master;
 
 		// Master limiter
-		float outL = softLimit(mixL);
-		float outR = softLimit(mixR);
+		float outL = DSPUtils::softLimit5V(mixL);
+		float outR = DSPUtils::softLimit5V(mixR);
 
-		// VU meters (post‑limiter)
+		// VU meters (post-limiter): fast-ish attack / slow release
 		float absL = std::fabs(outL);
 		float absR = std::fabs(outR);
-		// Fast attack / slow release
-		float atk = 0.6f, rel = 0.02f;
+		float rel = 0.02f;
 		vuL = std::max(absL, vuL * (1.f - rel) + absL * rel);
 		vuR = std::max(absR, vuR * (1.f - rel) + absR * rel);
 
@@ -270,7 +230,7 @@ struct TL_Mixes : Module {
 		setVU(vuL, L_VU_1_LIGHT);
 		setVU(vuR, R_VU_1_LIGHT);
 
-		// Outputs
+		// Outputs (post-limiter)
 		outputs[OUT_L_OUTPUT].setVoltage(outL);
 		outputs[OUT_R_OUTPUT].setVoltage(outR);
 	}
@@ -328,37 +288,37 @@ struct TL_MixesWidget : ModuleWidget {
 
 		addParam(createParamCentered<SmallHSlider>(mm2px(rack::math::Vec(61.085, 107.963)), module, TL_Mixes::MASTER_PARAM));
 
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.565, 22.44)), module, TL_Mixes::L_IN_1_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.738, 19.788)), module, TL_Mixes::L_IN_2_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.814, 17.13)), module, TL_Mixes::L_IN_3_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.956, 15.005)), module, TL_Mixes::L_IN_4_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.569, 17.068)), module, TL_Mixes::L_IN_5_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.55, 22.44)), module, TL_Mixes::L_IN_1_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.74, 19.788)), module, TL_Mixes::L_IN_2_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.7, 17.13)), module, TL_Mixes::L_IN_3_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.95, 15.005)), module, TL_Mixes::L_IN_4_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.6, 17.068)), module, TL_Mixes::L_IN_5_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.88, 19.704)), module, TL_Mixes::L_IN_6_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.524, 22.312)), module, TL_Mixes::L_IN_7_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.2, 22.312)), module, TL_Mixes::L_IN_7_INPUT));
 
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.565, 31.987)), module, TL_Mixes::R_IN_1_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.738, 29.335)), module, TL_Mixes::R_IN_2_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.814, 26.677)), module, TL_Mixes::R_IN_3_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.956, 24.552)), module, TL_Mixes::R_IN_4_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.569, 26.615)), module, TL_Mixes::R_IN_5_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.55, 31.987)), module, TL_Mixes::R_IN_1_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.74, 29.335)), module, TL_Mixes::R_IN_2_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.7, 26.677)), module, TL_Mixes::R_IN_3_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.95, 24.552)), module, TL_Mixes::R_IN_4_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.6, 26.615)), module, TL_Mixes::R_IN_5_INPUT));
 		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.88, 29.251)), module, TL_Mixes::R_IN_6_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.524, 31.859)), module, TL_Mixes::R_IN_7_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.2, 31.859)), module, TL_Mixes::R_IN_7_INPUT));
 
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.576, 43.585)), module, TL_Mixes::VOL_IN_1_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.749, 40.932)), module, TL_Mixes::VOL_IN_2_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.825, 38.275)), module, TL_Mixes::VOL_IN_3_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.967, 36.149)), module, TL_Mixes::VOL_IN_4_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.58, 38.213)), module, TL_Mixes::VOL_IN_5_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.891, 40.848)), module, TL_Mixes::VOL_IN_6_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.534, 43.457)), module, TL_Mixes::VOL_IN_7_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.55, 43.585)), module, TL_Mixes::VOL_IN_1_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.74, 40.932)), module, TL_Mixes::VOL_IN_2_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.7, 38.275)), module, TL_Mixes::VOL_IN_3_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.95, 36.149)), module, TL_Mixes::VOL_IN_4_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.6, 38.213)), module, TL_Mixes::VOL_IN_5_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.88, 40.848)), module, TL_Mixes::VOL_IN_6_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.2, 43.457)), module, TL_Mixes::VOL_IN_7_INPUT));
 
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.554, 53.11)), module, TL_Mixes::PAN_IN_1_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.727, 50.457)), module, TL_Mixes::PAN_IN_2_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.803, 47.8)), module, TL_Mixes::PAN_IN_3_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.945, 45.674)), module, TL_Mixes::PAN_IN_4_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.558, 47.738)), module, TL_Mixes::PAN_IN_5_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.869, 50.373)), module, TL_Mixes::PAN_IN_6_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.513, 52.982)), module, TL_Mixes::PAN_IN_7_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(8.55, 53.11)), module, TL_Mixes::PAN_IN_1_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(25.74, 50.457)), module, TL_Mixes::PAN_IN_2_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(43.7, 47.8)), module, TL_Mixes::PAN_IN_3_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(60.95, 45.674)), module, TL_Mixes::PAN_IN_4_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(78.6, 47.738)), module, TL_Mixes::PAN_IN_5_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(95.88, 50.373)), module, TL_Mixes::PAN_IN_6_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(113.2, 52.982)), module, TL_Mixes::PAN_IN_7_INPUT));
 
 		addOutput(createOutputCentered<DarkPJ301MPort>(mm2px(Vec(55.805, 116.52)), module, TL_Mixes::OUT_L_OUTPUT));
 		addOutput(createOutputCentered<DarkPJ301MPort>(mm2px(Vec(66.731, 116.551)), module, TL_Mixes::OUT_R_OUTPUT));
