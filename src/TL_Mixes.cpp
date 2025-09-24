@@ -36,63 +36,35 @@ struct TL_Mixes : Module {
 		LIGHTS_LEN
 	};
 
-	// ===== Runtime state =====
 	static constexpr int CH = 7;
-	
-	// One HP per side per channel
+
+	// HP por lado/canal
 	DSPUtils::HP1 hpL[CH];
 	DSPUtils::HP1 hpR[CH];
-	
-	// master meter smoothing
+
+	// Cache de paneo/ balance cuando NO hay CV (evita trig por sample)
+	float lastPanKnob[CH] {};
+	float panGL[CH] {}; // mono->L
+	float panGR[CH] {}; // mono->R
+	float balG[CH]   {}; // balance atenuación
+	bool  panCacheValid[CH] {};
+
+	// VU / SR
 	float vuL = 0.f, vuR = 0.f;
 	float sampleRate = 44100.f;
 
-	// fixed high-pass cutoff for CUT.
+	// cutoff fijo para CUT
 	float cutHz = 180.f;
 
 	TL_Mixes() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
 		static const std::vector<std::string> onoff_labels = {"Off", "On"};
-		configSwitch(CUT_1_PARAM, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
-		configSwitch(CUT_2_PARAM, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
-		configSwitch(CUT_3_PARAM, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
-		configSwitch(CUT_4_PARAM, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
-		configSwitch(CUT_5_PARAM, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
-		configSwitch(CUT_6_PARAM, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
-		configSwitch(CUT_7_PARAM, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
-
-		configParam(PAN_1_PARAM, -1.f, 1.f, 0.f, "Pan");
-		configParam(PAN_2_PARAM, -1.f, 1.f, 0.f, "Pan");
-		configParam(PAN_3_PARAM, -1.f, 1.f, 0.f, "Pan");
-		configParam(PAN_4_PARAM, -1.f, 1.f, 0.f, "Pan");
-		configParam(PAN_5_PARAM, -1.f, 1.f, 0.f, "Pan");
-		configParam(PAN_6_PARAM, -1.f, 1.f, 0.f, "Pan");
-		configParam(PAN_7_PARAM, -1.f, 1.f, 0.f, "Pan");
-
-		configParam(VOL_1_PARAM, 0.f, 10.f, 0.f, "Vol");
-		configParam(VOL_2_PARAM, 0.f, 10.f, 0.f, "Vol");
-		configParam(VOL_3_PARAM, 0.f, 10.f, 0.f, "Vol");
-		configParam(VOL_4_PARAM, 0.f, 10.f, 0.f, "Vol");
-		configParam(VOL_5_PARAM, 0.f, 10.f, 0.f, "Vol");
-		configParam(VOL_6_PARAM, 0.f, 10.f, 0.f, "Vol");
-		configParam(VOL_7_PARAM, 0.f, 10.f, 0.f, "Vol");
-
-		configSwitch(MUTE_1_PARAM, 0.f, 1.f, 0.f, "Mute", onoff_labels);
-		configSwitch(MUTE_2_PARAM, 0.f, 1.f, 0.f, "Mute", onoff_labels);
-		configSwitch(MUTE_3_PARAM, 0.f, 1.f, 0.f, "Mute", onoff_labels);
-		configSwitch(MUTE_4_PARAM, 0.f, 1.f, 0.f, "Mute", onoff_labels);
-		configSwitch(MUTE_5_PARAM, 0.f, 1.f, 0.f, "Mute", onoff_labels);
-		configSwitch(MUTE_6_PARAM, 0.f, 1.f, 0.f, "Mute", onoff_labels);
-		configSwitch(MUTE_7_PARAM, 0.f, 1.f, 0.f, "Mute", onoff_labels);
-
-		configSwitch(SOLO_1_PARAM, 0.f, 1.f, 0.f, "Solo", onoff_labels);
-		configSwitch(SOLO_2_PARAM, 0.f, 1.f, 0.f, "Solo", onoff_labels);
-		configSwitch(SOLO_3_PARAM, 0.f, 1.f, 0.f, "Solo", onoff_labels);
-		configSwitch(SOLO_4_PARAM, 0.f, 1.f, 0.f, "Solo", onoff_labels);
-		configSwitch(SOLO_5_PARAM, 0.f, 1.f, 0.f, "Solo", onoff_labels);
-		configSwitch(SOLO_6_PARAM, 0.f, 1.f, 0.f, "Solo", onoff_labels);
-		configSwitch(SOLO_7_PARAM, 0.f, 1.f, 0.f, "Solo", onoff_labels);
+		for (int i = 0; i < CH; ++i) configSwitch(CUT_1_PARAM + i, 0.f, 1.f, 0.f, "Cutoff", onoff_labels);
+		for (int i = 0; i < CH; ++i) configParam(PAN_1_PARAM + i, -1.f, 1.f, 0.f, "Pan");
+		for (int i = 0; i < CH; ++i) configParam(VOL_1_PARAM + i, 0.f, 10.f, 0.f, "Vol");
+		for (int i = 0; i < CH; ++i) configSwitch(MUTE_1_PARAM + i, 0.f, 1.f, 0.f, "Mute", onoff_labels);
+		for (int i = 0; i < CH; ++i) configSwitch(SOLO_1_PARAM + i, 0.f, 1.f, 0.f, "Solo", onoff_labels);
 
 		configParam(MASTER_PARAM, 0.f, 100.f, 0.f, "Master");
 
@@ -116,7 +88,22 @@ struct TL_Mixes : Module {
 	void onReset(const ResetEvent& e) override {
 		Module::onReset(e);
 		vuL = vuR = 0.f;
-		for (int i = 0; i < CH; ++i) { hpL[i].reset(); hpR[i].reset(); }
+		for (int i = 0; i < CH; ++i) {
+			hpL[i].reset(); hpR[i].reset();
+			panCacheValid[i] = false; lastPanKnob[i] = 0.f; panGL[i] = 0.7071f; panGR[i] = 0.7071f; balG[i] = 1.f;
+		}
+	}
+
+	inline void updatePanCachesIfNeeded(int c, float panKnob, bool panCvConnected) {
+		if (panCvConnected) return; // con CV no cacheamos (audio-rate)
+		if (!panCacheValid[c] || DSPUtils::changedEnough(panKnob, lastPanKnob[c])) {
+			lastPanKnob[c] = panKnob;
+			// mono -> stereo
+			DSPUtils::equalPowerGains(panKnob, panGL[c], panGR[c]);
+			// balance estéreo
+			balG[c] = DSPUtils::equalPowerAttenuation(panKnob);
+			panCacheValid[c] = true;
+		}
 	}
 
 	void process(const ProcessArgs& args) override {
@@ -126,111 +113,118 @@ struct TL_Mixes : Module {
 			for (int i = 0; i < CH; ++i) { hpL[i].setCutoff(cutHz, sampleRate); hpR[i].setCutoff(cutHz, sampleRate); }
 		}
 
-		float mixL = 0.f;
-		float mixR = 0.f;
+		float mixL = 0.f, mixR = 0.f;
 
 		// Any SOLO active?
 		bool anySolo = false;
 		for (int c = 0; c < CH; ++c) anySolo |= (params[SOLO_1_PARAM + c].getValue() > 0.5f);
 
 		for (int c = 0; c < CH; ++c) {
-			// Status
-			bool cut = params[CUT_1_PARAM + c].getValue() > 0.5f;
+			// Estado
+			bool cut  = params[CUT_1_PARAM  + c].getValue() > 0.5f;
 			bool mute = params[MUTE_1_PARAM + c].getValue() > 0.5f;
 			bool solo = params[SOLO_1_PARAM + c].getValue() > 0.5f;
 
 			// LEDs
-			lights[LED_1_LIGHT + c].setBrightness(cut ? 1.f : 0.f);
+			lights[LED_1_LIGHT + c].setBrightness(cut  ? 1.f : 0.f);
 			lights[MUTE_1_LED + c].setBrightness(mute ? 1.f : 0.f);
 			lights[SOLO_1_LED + c].setBrightness(solo ? 1.f : 0.f);
 
-			if (mute || (anySolo && !solo)) continue; // skip this channel in mix
+			// Solo/mute gating
+			if (mute || (anySolo && !solo)) continue;
 
-			// Inputs
+			// Conexiones
 			bool lConn = inputs[L_IN_1_INPUT + c].isConnected();
 			bool rConn = inputs[R_IN_1_INPUT + c].isConnected();
+			// Early-out: canal completamente vacío
+			if (!lConn && !rConn) continue;
+
 			float inL = lConn ? inputs[L_IN_1_INPUT + c].getVoltage() : 0.f;
 			float inR = rConn ? inputs[R_IN_1_INPUT + c].getVoltage() : 0.f;
 
-			// Mono/stereo behavior
-			if (!(lConn && rConn)) {
-				float mono = lConn ? inL : (rConn ? inR : 0.f);
-				inL = mono;
-				inR = mono;
+			// Mono/stereo
+			bool stereo = (lConn && rConn);
+			if (!stereo) {
+				float mono = lConn ? inL : inR;
+				inL = mono; inR = mono;
 			}
 
-			// CUT (HP) per side when switch active
+			// CUT (HP) por lado si activo
 			if (cut) {
 				inL = hpL[c].process(inL);
 				inR = hpR[c].process(inR);
 			}
 
-			// Volume — knob sets maximum, CV overrides absolute within 0..max
+			// Volume
 			float vol = DSPUtils::resolveVolume01(
-			    params[VOL_1_PARAM + c].getValue(),
-			    inputs[VOL_IN_1_INPUT + c].isConnected(),
-			    inputs[VOL_IN_1_INPUT + c].getVoltage()
+				params[VOL_1_PARAM + c].getValue(),
+				inputs[VOL_IN_1_INPUT + c].isConnected(),
+				inputs[VOL_IN_1_INPUT + c].getVoltage()
 			);
+			inL *= vol; inR *= vol;
 
-			// Pan — CV fully overrides knob
-			float pan = DSPUtils::resolvePanMinus1to1(
-			    params[PAN_1_PARAM + c].getValue(),
-			    inputs[PAN_IN_1_INPUT + c].isConnected(),
-			    inputs[PAN_IN_1_INPUT + c].getVoltage()
-			);
+			// Pan
+			bool panCv = inputs[PAN_IN_1_INPUT + c].isConnected();
+			float panVal = panCv
+				? DSPUtils::resolvePanMinus1to1(0.f, true, inputs[PAN_IN_1_INPUT + c].getVoltage())
+				: params[PAN_1_PARAM + c].getValue();
 
-			// Apply per-channel gain
-			inL *= vol;
-			inR *= vol;
+			// Cache de gains si no hay CV
+			updatePanCachesIfNeeded(c, panVal, panCv);
 
-			// Apply panning only when the channel behaves as mono; if both inputs present, treat as balance
-			if (inputs[L_IN_1_INPUT + c].isConnected() && inputs[R_IN_1_INPUT + c].isConnected()) {
-				float l = inL, r = inR;
-				DSPUtils::balanceStereoEqualPower(l, r, pan);
-				mixL += l;
-				mixR += r;
+			if (stereo) {
+				// Balance estéreo equal-power
+				if (panCv) {
+					float g = DSPUtils::equalPowerAttenuation(panVal);
+					if (panVal > 0.f) inL *= g;
+					else if (panVal < 0.f) inR *= g;
+				} else {
+					// usar cache
+					if (panVal > 0.f) inL *= balG[c];
+					else if (panVal < 0.f) inR *= balG[c];
+				}
+				mixL += inL; mixR += inR;
 			}
 			else {
-				// mono -> stereo with equal-power pan
+				// mono -> stereo equal-power
 				float mono = 0.5f * (inL + inR);
-				DSPUtils::panMonoEqualPower(mono, pan, mixL, mixR);
+				if (panCv) {
+					float gl, gr; DSPUtils::equalPowerGains(panVal, gl, gr);
+					mixL += mono * gl; mixR += mono * gr;
+				} else {
+					mixL += mono * panGL[c]; mixR += mono * panGR[c];
+				}
 			}
 		}
 
-		// Master gain (0..1) applied pre-limiter
+		// Master
 		float master = clamp(params[MASTER_PARAM].getValue() / 100.f, 0.f, 1.f);
-		mixL *= master;
-		mixR *= master;
+		mixL *= master; mixR *= master;
 
-		// Master limiter
+		// Limitador
 		float outL = DSPUtils::softLimit5V(mixL);
 		float outR = DSPUtils::softLimit5V(mixR);
 
-		// VU meters (post-limiter): fast-ish attack / slow release
-		float absL = std::fabs(outL);
-		float absR = std::fabs(outR);
-		float rel = 0.02f;
+		// VU post-limiter
+		const float rel = 0.02f;
+		float absL = std::fabs(outL), absR = std::fabs(outR);
 		vuL = std::max(absL, vuL * (1.f - rel) + absL * rel);
 		vuR = std::max(absR, vuR * (1.f - rel) + absR * rel);
 
+		// Luces VU
 		auto setVU = [&](float v, int baseLight) {
-			// thresholds relative to 5V FS
-			float fs = 5.f;
-			float t1 = 0.05f * fs; // lowest
-			float t2 = 0.12f * fs;
-			float t3 = 0.25f * fs;
-			float t4 = 0.50f * fs;
-			float t5 = 0.90f * fs; // near clip only
-			lights[baseLight + 0].setBrightness(v >= t1 ? 1.f : 0.f);
-			lights[baseLight + 1].setBrightness(v >= t2 ? 1.f : 0.f);
-			lights[baseLight + 2].setBrightness(v >= t3 ? 1.f : 0.f);
-			lights[baseLight + 3].setBrightness(v >= t4 ? 1.f : 0.f);
-			lights[baseLight + 4].setBrightness(v >= t5 ? 1.f : 0.f);
+			const float fs = 5.f;
+			const float t1 = 0.05f * fs, t2 = 0.12f * fs, t3 = 0.25f * fs, t4 = 0.50f * fs, t5 = 0.90f * fs;
+			lights[baseLight + 0].setBrightness(v >= t1);
+			lights[baseLight + 1].setBrightness(v >= t2);
+			lights[baseLight + 2].setBrightness(v >= t3);
+			lights[baseLight + 3].setBrightness(v >= t4);
+			lights[baseLight + 4].setBrightness(v >= t5);
 		};
 		setVU(vuL, L_VU_1_LIGHT);
 		setVU(vuR, R_VU_1_LIGHT);
 
-		// Outputs (post-limiter)
+		// Salidas
 		outputs[OUT_L_OUTPUT].setVoltage(outL);
 		outputs[OUT_R_OUTPUT].setVoltage(outR);
 	}

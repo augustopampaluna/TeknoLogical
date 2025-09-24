@@ -184,7 +184,7 @@ struct TL_Bass : Module {
 		}
 		voctWasConnected = voctNow;
 
-		// CHANGE: keep LED on for ~1 ms when fired (visual feedback)
+		// CHANGE: keep LED on for ~1 ms when fired.
 		if (fired) trigLed.trigger(1e-3f);
 		lights[BTN_TRIG_LIGHT].setBrightness(trigLed.process(args.sampleTime) ? 1.f : 0.f);
 
@@ -198,8 +198,6 @@ struct TL_Bass : Module {
 			env.trigger(decayParam, sr);
 			// Anti-click: start attack at 0 (rise to 1 in ~0.5 ms)
 			atkEnv = 0.f;
-			// If you prefer identical phase per hit, uncomment:
-			// osc.resetPhase();
 		}
 
 		// --- Pitch 1 V/oct clamped to ±2 oct
@@ -207,7 +205,7 @@ struct TL_Bass : Module {
 		const float pitchV  = BASE_V_DEFAULT + pitchIn;  // base C2 + limited deviation
 
 		// CHANGE: faster 2^x and safer freq ceiling wrt SR
-		float freq = 440.f * dsp::exp2_taylor5(pitchV); // faster than pow(2, x)
+		float freq = 440.f * dsp::exp2_taylor5(pitchV);
 		const float nyqSafe = 0.45f * sr;
 		if (freq > nyqSafe) freq = nyqSafe;
 		osc.setFreq(freq);
@@ -258,12 +256,6 @@ struct TL_Bass : Module {
 
 		// --- DC-block and output normalization
 		out = dcBlock.process(out);
-
-		// CHANGE (optional): prefer soft limiting or a wider safe range
-		// Hard-clamp removed to avoid unnecessary hard clipping (see Voltage Standards).
-		// If you strictly need ±5 V, soft clip:
-		// out = 5.f * std::tanh(out);
-		// Otherwise keep within a safe Eurorack-ish bound:
 		out = clamp(out * 5.f, -11.7f, 11.7f);
 
 		outputs[OUT_MONO_OUTPUT].setVoltage(out);
