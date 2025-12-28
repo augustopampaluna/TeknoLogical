@@ -3,86 +3,164 @@
 
 struct TL_Odd5 : Module {
 	enum ParamId {
-		SPREAD_PARAM,
-		RANDOM_PARAM,
-		KNOB_32_PARAM,
 		KNOB_31_PARAM,
+		KNOB_32_PARAM,
 		KNOB_33_PARAM,
-		KNOB_53_PARAM,
-		KNOB_52_PARAM,
-		KNOB_54_PARAM,
 		KNOB_51_PARAM,
+		KNOB_52_PARAM,
+		KNOB_53_PARAM,
+		KNOB_54_PARAM,
 		KNOB_55_PARAM,
-		KNOB_74_PARAM,
-		KNOB_73_PARAM,
-		KNOB_75_PARAM,
-		KNOB_72_PARAM,
-		KNOB_76_PARAM,
 		KNOB_71_PARAM,
+		KNOB_72_PARAM,
+		KNOB_73_PARAM,
+		KNOB_74_PARAM,
+		KNOB_75_PARAM,
+		KNOB_76_PARAM,
 		KNOB_77_PARAM,
+		
+		RANDOM_PARAM,
+		SPREAD_PARAM,
+		
 		PARAMS_LEN
 	};
 	enum InputId {
 		IN_3_INPUT,
 		IN_5_INPUT,
 		IN_7_INPUT,
+		
 		INPUTS_LEN
 	};
 	enum OutputId {
 		OUT_3_OUTPUT,
 		OUT_5_OUTPUT,
 		OUT_7_OUTPUT,
+		
 		OUTPUTS_LEN
 	};
 	enum LightId {
-		LED_32_LIGHT,
 		LED_31_LIGHT,
+		LED_32_LIGHT,
 		LED_33_LIGHT,
-		LED_53_LIGHT,
-		LED_52_LIGHT,
-		LED_54_LIGHT,
 		LED_51_LIGHT,
+		LED_52_LIGHT,
+		LED_53_LIGHT,
+		LED_54_LIGHT,
 		LED_55_LIGHT,
-		LED_74_LIGHT,
-		LED_73_LIGHT,
-		LED_75_LIGHT,
-		LED_72_LIGHT,
-		LED_76_LIGHT,
 		LED_71_LIGHT,
+		LED_72_LIGHT,
+		LED_73_LIGHT,
+		LED_74_LIGHT,
+		LED_75_LIGHT,
+		LED_76_LIGHT,
 		LED_77_LIGHT,
+		
 		LIGHTS_LEN
 	};
 
+	int currentStep3 = 0; // 0..2
+	int currentStep5 = 0; // 0..4
+	int currentStep7 = 0; // 0..6
+
+	dsp::SchmittTrigger trig3;
+	dsp::SchmittTrigger trig5;
+	dsp::SchmittTrigger trig7;
+
 	TL_Odd5() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-		configParam(SPREAD_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(RANDOM_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_32_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_31_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_33_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_53_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_52_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_54_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_51_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_55_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_74_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_73_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_75_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_72_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_76_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_71_PARAM, 0.f, 1.f, 0.f, "");
-		configParam(KNOB_77_PARAM, 0.f, 1.f, 0.f, "");
-		configInput(IN_3_INPUT, "");
-		configInput(IN_5_INPUT, "");
-		configInput(IN_7_INPUT, "");
-		configOutput(OUT_3_OUTPUT, "");
-		configOutput(OUT_5_OUTPUT, "");
-		configOutput(OUT_7_OUTPUT, "");
+
+		// Params (alfabético)
+		configParam(KNOB_31_PARAM, -1.f, 1.f, 0.f, "Step 1");
+		configParam(KNOB_32_PARAM, -1.f, 1.f, 0.f, "Step 2");
+		configParam(KNOB_33_PARAM, -1.f, 1.f, 0.f, "Step 3");
+
+		configParam(KNOB_51_PARAM, -1.f, 1.f, 0.f, "Step 1");
+		configParam(KNOB_52_PARAM, -1.f, 1.f, 0.f, "Step 2");
+		configParam(KNOB_53_PARAM, -1.f, 1.f, 0.f, "Step 3");
+		configParam(KNOB_54_PARAM, -1.f, 1.f, 0.f, "Step 4");
+		configParam(KNOB_55_PARAM, -1.f, 1.f, 0.f, "Step 5");
+
+		configParam(KNOB_71_PARAM, -1.f, 1.f, 0.f, "Step 1");
+		configParam(KNOB_72_PARAM, -1.f, 1.f, 0.f, "Step 2");
+		configParam(KNOB_73_PARAM, -1.f, 1.f, 0.f, "Step 3");
+		configParam(KNOB_74_PARAM, -1.f, 1.f, 0.f, "Step 4");
+		configParam(KNOB_75_PARAM, -1.f, 1.f, 0.f, "Step 5");
+		configParam(KNOB_76_PARAM, -1.f, 1.f, 0.f, "Step 6");
+		configParam(KNOB_77_PARAM, -1.f, 1.f, 0.f, "Step 7");
+
+		configParam(SPREAD_PARAM, 1.f, 5.f, 1.f, "Spread");
+		configParam(RANDOM_PARAM, 0.f, 1.f, 0.f, "Random");
+
+		// Inputs
+		configInput(IN_3_INPUT, "Seq3");
+		configInput(IN_5_INPUT, "Seq5");
+		configInput(IN_7_INPUT, "Seq7");
+
+		// Outputs
+		configOutput(OUT_3_OUTPUT, "Seq3");
+		configOutput(OUT_5_OUTPUT, "Seq5");
+		configOutput(OUT_7_OUTPUT, "Seq7");
 	}
 
 	void process(const ProcessArgs& args) override {
+		const float spread = params[SPREAD_PARAM].getValue();          // 0..9
+		const bool randomMode = (params[RANDOM_PARAM].getValue() > 0.5f);
+
+		// Mapeos (paramId por paso) para leer rápido el knob correspondiente al step actual
+		static const int seq3Params[3] = { KNOB_31_PARAM, KNOB_32_PARAM, KNOB_33_PARAM };
+		static const int seq5Params[5] = { KNOB_51_PARAM, KNOB_52_PARAM, KNOB_53_PARAM, KNOB_54_PARAM, KNOB_55_PARAM };
+		static const int seq7Params[7] = { KNOB_71_PARAM, KNOB_72_PARAM, KNOB_73_PARAM, KNOB_74_PARAM, KNOB_75_PARAM, KNOB_76_PARAM, KNOB_77_PARAM };
+
+		// LEDs asociados (lightId por paso)
+		static const int seq3Leds[3] = { LED_31_LIGHT, LED_32_LIGHT, LED_33_LIGHT };
+		static const int seq5Leds[5] = { LED_51_LIGHT, LED_52_LIGHT, LED_53_LIGHT, LED_54_LIGHT, LED_55_LIGHT };
+		static const int seq7Leds[7] = { LED_71_LIGHT, LED_72_LIGHT, LED_73_LIGHT, LED_74_LIGHT, LED_75_LIGHT, LED_76_LIGHT, LED_77_LIGHT };
+
+		// -------------------- Advance steps on triggers --------------------
+		if (inputs[IN_3_INPUT].isConnected()) {
+			if (trig3.process(inputs[IN_3_INPUT].getVoltage())) {
+				if (randomMode) currentStep3 = (int) (random::u32() % 3);
+				else currentStep3 = (currentStep3 + 1) % 3;
+			}
+		}
+
+		if (inputs[IN_5_INPUT].isConnected()) {
+			if (trig5.process(inputs[IN_5_INPUT].getVoltage())) {
+				if (randomMode) currentStep5 = (int) (random::u32() % 5);
+				else currentStep5 = (currentStep5 + 1) % 5;
+			}
+		}
+
+		if (inputs[IN_7_INPUT].isConnected()) {
+			if (trig7.process(inputs[IN_7_INPUT].getVoltage())) {
+				if (randomMode) currentStep7 = (int) (random::u32() % 7);
+				else currentStep7 = (currentStep7 + 1) % 7;
+			}
+		}
+
+		// -------------------- Outputs (CV) --------------------
+		// Cada knob está en -1..+1, lo escalamos por SPREAD => -spread..+spread volts
+		const float out3 = params[seq3Params[currentStep3]].getValue() * spread;
+		const float out5 = params[seq5Params[currentStep5]].getValue() * spread;
+		const float out7 = params[seq7Params[currentStep7]].getValue() * spread;
+
+		outputs[OUT_3_OUTPUT].setVoltage(out3);
+		outputs[OUT_5_OUTPUT].setVoltage(out5);
+		outputs[OUT_7_OUTPUT].setVoltage(out7);
+
+		// -------------------- LEDs --------------------
+		for (int i = 0; i < 3; i++)
+			lights[seq3Leds[i]].setBrightnessSmooth(i == currentStep3 ? 1.f : 0.f, args.sampleTime);
+
+		for (int i = 0; i < 5; i++)
+			lights[seq5Leds[i]].setBrightnessSmooth(i == currentStep5 ? 1.f : 0.f, args.sampleTime);
+
+		for (int i = 0; i < 7; i++)
+			lights[seq7Leds[i]].setBrightnessSmooth(i == currentStep7 ? 1.f : 0.f, args.sampleTime);
 	}
+
 };
+
 
 
 struct TL_Odd5Widget : ModuleWidget {
