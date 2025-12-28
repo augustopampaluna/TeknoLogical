@@ -62,6 +62,14 @@
         "Mixer",
         "Panning"
       ]
+    },
+    {
+      "slug": "TL_Odd5",
+      "name": "TL_Odd5",
+      "description": "Odd sequencer.",
+      "tags": [
+        "Sequencer"
+      ]
     }
   ]
 }
