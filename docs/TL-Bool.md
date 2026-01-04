@@ -1,5 +1,6 @@
 # TL-Bool
 
+<img width="212" height="900" alt="Captura de pantalla 2026-01-04 133232" src="https://github.com/user-attachments/assets/f8840884-8ec7-4ef3-b9bc-09f06b081e52" />
 
 
 A **dual-input logic gate processor with probability control** for VCV Rack 2.  
