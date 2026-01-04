@@ -34,3 +34,37 @@ struct SmallHSlider : rack::app::SvgSlider {
     addChild(new DebugBorder);
   }
 };
+
+struct SmallHSliderBool : rack::app::SvgSlider {
+  SmallHSliderBool(float margin = 2.f) {
+    auto bg = APP->window->loadSvg(asset::plugin(pluginInstance, "res/custom_components/MasterHSliderBool-bg.svg"));
+    auto hd = APP->window->loadSvg(asset::plugin(pluginInstance, "res/custom_components/MasterHSliderBool-handle.svg"));
+    setBackgroundSvg(bg);
+    setHandleSvg(hd);
+
+    box.size = background->box.size; // 88x16 de ese SVG
+    if (box.size.isZero()) box.size = rack::math::Vec(47.0f, 12.8f);
+
+    const float W = box.size.x, H = box.size.y;
+    const float hw = handle ? handle->box.size.x : H * 0.6f;
+    setHandlePosCentered(
+      rack::math::Vec(margin + hw * 0.1f, H * 0.5f),
+      rack::math::Vec(W - margin - hw * 0.1f, H * 0.5f)
+    );
+    horizontal = true;
+
+    // Borde rojo: quítalo cuando confirmes que se ve
+    struct DebugBorder : rack::widget::Widget {
+      void draw(const DrawArgs& args) override {
+        nvgBeginPath(args.vg);
+        nvgRect(args.vg, 0, 0, box.size.x, box.size.y);
+        nvgStrokeWidth(args.vg, 1.f);
+        nvgStrokeColor(args.vg, nvgRGBA(255, 0, 0, 200));
+        nvgStroke(args.vg);
+      }
+    };
+    addChild(new DebugBorder);
+  }
+};
+
+

@@ -70,6 +70,15 @@
       "tags": [
         "Sequencer"
       ]
+    },
+    {
+      "slug": "TL_Bool",
+      "name": "TL_Bool",
+      "description": "Dual-input logic with probability-driven variation",
+      "tags": [
+        "Logic"
+      ]
     }
+
   ]
 }
