@@ -16,7 +16,7 @@ Each row outputs a stepped CV sequence driven by its own trigger input, making T
 | Control | Description |
 |--------|-------------|
 | **SPREAD** | Global voltage spread. Scales the range of all step voltages simultaneously, from subtle modulation to wide melodic movement. |
-| **RANDOM** | Enables controlled random variation on step voltages while preserving the overall structure defined by SPREAD and the knob settings. |
+| **RANDOM** | Changes the step advance behavior. When enabled, each trigger advances the sequence to a **random step** instead of moving to the next step in order. |
 
 ---
 
@@ -34,7 +34,11 @@ Step LEDs indicate the currently active position in each row.
 
 ## Inputs
 
-- **TRIGGERS (3x)** — One trigger input per row. Each rising edge advances that row by one step. Rows run fully independently.
+- **TRIGGERS (3x)** — One trigger input per row. Each rising edge advances that row.  
+  - **RANDOM off:** steps advance sequentially.  
+  - **RANDOM on:** the next step is chosen randomly within the row length.
+
+Rows run fully independently.
 
 ---
 
@@ -49,7 +53,7 @@ Step LEDs indicate the currently active position in each row.
 - Each row advances only on its own trigger input.
 - Sequences loop continuously within their fixed odd length.
 - All step voltages are scaled by the global **SPREAD** control.
-- **RANDOM** introduces variation without breaking the underlying pattern structure.
+- **RANDOM** affects step order only; step voltages remain unchanged.
 - No reset input: sequences are intended to free-run and naturally phase against each other.
 
 ---
@@ -60,7 +64,7 @@ Step LEDs indicate the currently active position in each row.
 2. Patch **SEQUENCES** outputs to pitch, filter cutoff, or modulation destinations.
 3. Set per-step voltages with the knobs.
 4. Adjust **SPREAD** to define the musical range.
-5. Enable **RANDOM** for subtle live variation.
+5. Enable **RANDOM** to introduce non-linear step movement.
 6. Let the odd step lengths phase over time for evolving patterns.
 
 ---
@@ -68,9 +72,11 @@ Step LEDs indicate the currently active position in each row.
 ## Notes
 
 - Fixed odd step lengths are intentional and non-configurable.
+- RANDOM introduces variation through step order, not voltage randomization.
 - Designed for musical drift rather than bar-aligned sequencing.
 - Pairs especially well with even-step sequencers for long-form variation.
 
 ---
 
 [⬅ Back to Module Index](../README.md)
+
