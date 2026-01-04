@@ -2,7 +2,7 @@
 
 <img width="309" height="124" alt="tecnologo" src="https://github.com/user-attachments/assets/8c090297-3238-41ae-8a1e-a2d54ca1af6a" />
 
-<img width="1880" height="697" alt="Captura de pantalla 2025-09-24 122335" src="https://github.com/user-attachments/assets/778ff262-2037-4067-a99c-ea0050b1794c" />
+<img width="1886" height="565" alt="Captura de pantalla 2026-01-04 162537" src="https://github.com/user-attachments/assets/a17777bb-9ebd-4d21-bc51-178c33c40e83" />
 
 ## Overview
 
