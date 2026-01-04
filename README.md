@@ -23,6 +23,8 @@ This project favors **musical constraint, immediacy, and coherence**—qualities
 - [TL-Reseter](docs/TL-Reseter.md) – Dual channel reset expander.
 - [TL-Bass](docs/TL-Bass.md) – Bass trigger.
 - [TL-Mixes](docs/TL-Mixes.md) – 7-channel stereo mixer with cutoff.
+- [TL-Odd5](docs/TL-Odd5.md) – Triple odd-step voltage sequencer.
+
 
 
 ## 📥 Installation
