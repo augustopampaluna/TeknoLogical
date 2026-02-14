@@ -72,7 +72,18 @@
       "tags": [
         "Logic"
       ]
+    },
+    {
+      "slug": "TL_Pump",
+      "name": "TL_Pump",
+      "description": "Sidechain-style stereo ducker with selectable pump curves.",
+      "tags": [
+        "Waveshaper",
+        "Dynamics",
+        "Compressor"
+      ]
     }
+
 
   ]
 }
