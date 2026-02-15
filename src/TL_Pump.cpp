@@ -31,39 +31,42 @@ struct TL_Pump : Module {
 		LIGHTS_LEN
 	};
 
-	// ---- Runtime ----
+	// ---------- Runtime ----------
 	int shapeIndex = 0;
 
 	dsp::SchmittTrigger shapeTrig;
 	dsp::SchmittTrigger manualTrig;
 	dsp::SchmittTrigger inputTrig;
 
-	// Envelope state
 	bool envActive = false;
 	float envTime = 0.f; // seconds since trigger
 
-	// Fixed depth (no control). 0.85 = duck fuerte pero musical.
-	// gain = 1 - env * depth
-	static constexpr float depth = 0.85f;
+	// Para que el scope se parezca a los dibujos: mínimo casi 0 (duck profundo)
+	static constexpr float minGain = 0.03f; // ~ -30 dB
 
 	struct ShapeDef {
-		float attack;   // seconds
-		float hold;     // seconds
-		float release;  // seconds
-		float aExp;     // attack curve exponent
-		float rExp;     // release curve exponent
+		// Shape 1/2/4: hold + release
+		float hold;        // seconds (espera en el fondo)
+		float release;     // seconds (subida)
+		float releasePow;  // curva de subida (1 = lineal; <1 sube rápido y se aplana; >1 tarda y sube al final)
+
+		// Shape 3: fade-out only
+		float fade;        // seconds (1 -> 0)
+		float fadePow;     // curva de caída
+		bool  latchZero;   // si true: al llegar a 0 se queda ahí hasta el próximo trigger
 	};
 
-	// 4 formas (ajustadas “tipo Kickstart” y una con attack más lento para dejar pasar el bombo)
+	// Interpretación directa de tus 4 dibujos:
+	// 1) ataque inmediato + espera + release lento (kicks largos)
+	// 2) como 1 pero retorno más de golpe
+	// 3) fade out 1->0 y se queda en 0 hasta nuevo trigger
+	// 4) como 1 pero release más rápido (kicks cortos)
 	ShapeDef shapes[4] = {
-		// A: classic pump (muy rápido abajo, subida media)
-		{ 0.0015f, 0.0000f, 0.180f, 0.60f, 2.20f },
-		// B: deep/long (rápido abajo + release largo)
-		{ 0.0010f, 0.0150f, 0.320f, 0.55f, 2.60f },
-		// C: let-kick-through (attack más lento, release medio)
-		{ 0.0100f, 0.0000f, 0.200f, 1.40f, 2.10f },
-		// D: snappy/gatey (rápido abajo + release corto)
-		{ 0.0008f, 0.0000f, 0.090f, 0.50f, 2.00f }
+		// hold, release, releasePow, fade, fadePow, latchZero
+		{ 0.040f, 0.280f, 0.70f,   0.000f, 1.0f,  false }, // 1: sube relativamente rápido al inicio y se aplana (parecido a “curva suave”)
+		{ 0.040f, 0.200f, 2.40f,   0.000f, 1.0f,  false }, // 2: retorno “de golpe” (se queda bajo y pega el salto más hacia el final)
+		{ 0.000f, 0.000f, 1.00f,   0.350f, 1.10f, true  }, // 3: fade-out y latch en cero
+		{ 0.020f, 0.140f, 0.75f,   0.000f, 1.0f,  false }, // 4: release rápido
 	};
 
 	TL_Pump() {
@@ -71,7 +74,7 @@ struct TL_Pump : Module {
 
 		configParam(SHAPE_PARAM, 0.f, 1.f, 0.f, "Shape");
 		configParam(TRIGGER_MANUAL_PARAM, 0.f, 1.f, 0.f, "Trigger");
-		configParam(DRYWET_PARAM, 0.f, 1.f, 1.f, "Dry/Wet"); // default full wet suele ser lo esperado
+		configParam(DRYWET_PARAM, 0.f, 1.f, 1.f, "Dry/Wet"); // default 100%
 
 		configInput(TRIGGER_INPUT, "Trigger");
 		configInput(IN_L_INPUT, "In L");
@@ -81,86 +84,95 @@ struct TL_Pump : Module {
 		configOutput(OUT_R_OUTPUT, "Out R");
 	}
 
-	float envelopeValue(const ShapeDef& s, float t) {
-		// env in [0..1], where 1 = maximum duck
-		if (t < 0.f) return 0.f;
-
-		const float a = s.attack;
-		const float h = s.hold;
-		const float r = s.release;
-
-		// Attack: 0 -> 1
-		if (t <= a) {
-			float x = (a > 0.f) ? (t / a) : 1.f;
-			x = clamp(x, 0.f, 1.f);
-			// Curva: pow(x, aExp) (aExp < 1 más rápido al inicio)
-			return std::pow(x, s.aExp);
-		}
-
-		// Hold: 1
-		if (t <= a + h) {
-			return 1.f;
-		}
-
-		// Release: 1 -> 0
-		float tr = t - (a + h);
-		if (tr <= r) {
-			float x = (r > 0.f) ? (tr / r) : 1.f;
-			x = clamp(x, 0.f, 1.f);
-			// Queremos 1 -> 0: pow(1 - x, rExp)
-			return std::pow(1.f - x, s.rExp);
-		}
-
-		// End
-		return 0.f;
-	}
-
 	void startEnvelope() {
 		envActive = true;
 		envTime = 0.f;
 	}
 
-	void process(const ProcessArgs& args) override {
-		// --- Shape button: cycle 4 shapes on rising edge
-		if (shapeTrig.process(params[SHAPE_PARAM].getValue())) {
-			shapeIndex = (shapeIndex + 1) & 3; // 0..3
+	// gain(t) en [0..1], que es lo que multiplica el audio (lo que querés ver en el scope)
+	float gainFromShape(int idx, float t) {
+		const ShapeDef& s = shapes[idx];
+
+		// ---- Shape 3: fade-out y latch ----
+		if (idx == 2) {
+			// Antes del trigger, envActive=false -> devolvemos 1 en process()
+			// Acá estamos "después del trigger".
+			float x = (s.fade > 0.f) ? (t / s.fade) : 1.f;
+			x = clamp(x, 0.f, 1.f);
+
+			// 1 -> 0 con curva
+			float g = 1.f - std::pow(x, s.fadePow);
+			g = clamp(g, 0.f, 1.f);
+
+			// Latch en cero
+			if (s.latchZero && x >= 1.f)
+				return 0.f;
+
+			return g;
 		}
 
-		// --- Trigger detection: manual OR input
-		bool trig = false;
-		if (manualTrig.process(params[TRIGGER_MANUAL_PARAM].getValue())) {
-			trig = true;
+		// ---- Shapes 1/2/4: caída inmediata al mínimo, hold, luego release hacia 1 ----
+		if (t <= s.hold) {
+			return minGain;
 		}
+
+		float tr = t - s.hold;
+		float x = (s.release > 0.f) ? (tr / s.release) : 1.f;
+		x = clamp(x, 0.f, 1.f);
+
+		// minGain -> 1 con curva
+		float shaped = std::pow(x, s.releasePow);
+		float g = minGain + (1.f - minGain) * shaped;
+		return clamp(g, minGain, 1.f);
+	}
+
+	void process(const ProcessArgs& args) override {
+		// --- Shape: ciclo 4 formas por click (flanco ascendente)
+		if (shapeTrig.process(params[SHAPE_PARAM].getValue())) {
+			shapeIndex = (shapeIndex + 1) & 3;
+		}
+
+		// --- Trigger: manual OR input
+		bool trig = false;
+		if (manualTrig.process(params[TRIGGER_MANUAL_PARAM].getValue()))
+			trig = true;
+
 		if (inputs[TRIGGER_INPUT].isConnected()) {
-			// SchmittTrigger espera señal unipolar razonable; tus triggers suelen ser 0..10V
-			if (inputTrig.process(inputs[TRIGGER_INPUT].getVoltage())) {
+			if (inputTrig.process(inputs[TRIGGER_INPUT].getVoltage()))
 				trig = true;
-			}
 		}
 
 		if (trig) {
 			startEnvelope();
 		}
 
-		// --- Envelope advance
-		float env = 0.f;
-		const ShapeDef& s = shapes[shapeIndex];
+		// --- Gain envelope
+		float gain = 1.f;
 
 		if (envActive) {
-			env = envelopeValue(s, envTime);
+			gain = gainFromShape(shapeIndex, envTime);
 			envTime += args.sampleTime;
 
-			// Auto-stop cuando ya terminó
-			if (envTime > (s.attack + s.hold + s.release + 0.01f)) {
-				envActive = false;
-				envTime = 0.f;
-				env = 0.f;
+			const ShapeDef& s = shapes[shapeIndex];
+
+			// Auto-stop:
+			// - Shape3: si latchZero, mantenemos envActive verdadero mientras no haya nuevo trigger,
+			//           así gain se queda en 0.
+			// - Otras: paramos al final del release.
+			if (shapeIndex == 2) {
+				if (!s.latchZero && envTime > (s.fade + 0.01f)) {
+					envActive = false;
+					envTime = 0.f;
+				}
+				// si latchZero: no apagamos envActive; queda en 0 hasta nuevo trigger
+			} else {
+				if (envTime > (s.hold + s.release + 0.01f)) {
+					envActive = false;
+					envTime = 0.f;
+					gain = 1.f;
+				}
 			}
 		}
-
-		// --- Gain from envelope
-		float gain = 1.f - env * depth;
-		gain = clamp(gain, 0.f, 1.f);
 
 		// --- Audio IO
 		float inL = inputs[IN_L_INPUT].getVoltage();
@@ -170,26 +182,26 @@ struct TL_Pump : Module {
 		float wetR = inR * gain;
 
 		float dw = clamp(params[DRYWET_PARAM].getValue(), 0.f, 1.f);
-
 		float outL = inL * (1.f - dw) + wetL * dw;
 		float outR = inR * (1.f - dw) + wetR * dw;
 
 		outputs[OUT_L_OUTPUT].setVoltage(outL);
 		outputs[OUT_R_OUTPUT].setVoltage(outR);
 
-		// --- Lights: indicate selected shape
+		// --- Shape indicator lights (A/B/C/D)
 		lights[LED_A_LIGHT].setBrightness(shapeIndex == 0 ? 1.f : 0.f);
 		lights[LED_B_LIGHT].setBrightness(shapeIndex == 1 ? 1.f : 0.f);
 		lights[LED_C_LIGHT].setBrightness(shapeIndex == 2 ? 1.f : 0.f);
 		lights[LED_D_LIGHT].setBrightness(shapeIndex == 3 ? 1.f : 0.f);
 
-		// Integrated button lights:
-		// - SHAPE_LED: on when pressed (momentary feel) + a tiny "always on" so se ve
-		float shapeLed = clamp(params[SHAPE_PARAM].getValue(), 0.f, 1.f);
-		lights[SHAPE_LED].setBrightness(0.15f + 0.85f * shapeLed);
+		// --- Button lights:
+		// SHAPE_LED: solo cuando se presiona (sin tenue permanente)
+		lights[SHAPE_LED].setBrightness(clamp(params[SHAPE_PARAM].getValue(), 0.f, 1.f));
 
-		// - TRIGGER_MANUAL_LED: show current envelope amount (nice feedback)
-		lights[TRIGGER_MANUAL_LED].setBrightness(clamp(env, 0.f, 1.f));
+		// TRIGGER_MANUAL_LED: feedback del gain (invertido para que “se vea” el pump)
+		// 1 = máximo pump, 0 = sin pump
+		float pumpAmt = 1.f - clamp(gain, 0.f, 1.f);
+		lights[TRIGGER_MANUAL_LED].setBrightness(clamp(pumpAmt, 0.f, 1.f));
 	}
 };
 
