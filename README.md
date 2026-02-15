@@ -2,7 +2,7 @@
 
 <img width="309" height="124" alt="tecnologo" src="https://github.com/user-attachments/assets/8c090297-3238-41ae-8a1e-a2d54ca1af6a" />
 
-<img width="1886" height="565" alt="Captura de pantalla 2026-01-04 162537" src="https://github.com/user-attachments/assets/a17777bb-9ebd-4d21-bc51-178c33c40e83" />
+<img width="1890" height="516" alt="Screenshot 2026-02-15 120842" src="https://github.com/user-attachments/assets/ff8e0396-a0cb-4fe8-bddd-0dd13bbfb8c2" />
 
 ## Overview
 
@@ -25,6 +25,7 @@ This project favors **musical constraint, immediacy, and coherence**—qualities
 - [TL-Mixes](docs/TL-Mixes.md) – 7-channel stereo mixer with cutoff.
 - [TL-Odd5](docs/TL-Odd5.md) – Triple odd-step voltage sequencer.
 - [TL-Bool](docs/TL-Bool.md) – Dual-input logic gate processor with probability.
+- [TL-Pump](docs/TL-Pump.md) – Sidechain-style stereo ducker with selectable pump curves.
 
 
 
