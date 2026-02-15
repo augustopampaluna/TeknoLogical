@@ -1,8 +1,10 @@
 # TeknoLogical Module Collection
 
-<img width="309" height="124" alt="tecnologo" src="https://github.com/user-attachments/assets/8c090297-3238-41ae-8a1e-a2d54ca1af6a" />
+**TeknoLogical** is a collection of **VCV Rack 2** modules for live minimal techno.
 
-<img width="1886" height="565" alt="Captura de pantalla 2026-01-04 162537" src="https://github.com/user-attachments/assets/a17777bb-9ebd-4d21-bc51-178c33c40e83" />
+<img width="309" height="124" alt="tecnologo" src="https://github.com/user-attachments/assets/c6f54a3b-7187-4efb-88aa-6d7e0b78abd8" />
+
+<img width="1880" height="697" alt="Captura de pantalla 2025-09-24 122335" src="https://github.com/user-attachments/assets/778ff262-2037-4067-a99c-ea0050b1794c" />
 
 ## Overview
 
@@ -23,9 +25,6 @@ This project favors **musical constraint, immediacy, and coherence**—qualities
 - [TL-Reseter](docs/TL-Reseter.md) – Dual channel reset expander.
 - [TL-Bass](docs/TL-Bass.md) – Bass trigger.
 - [TL-Mixes](docs/TL-Mixes.md) – 7-channel stereo mixer with cutoff.
-- [TL-Odd5](docs/TL-Odd5.md) – Triple odd-step voltage sequencer.
-- [TL-Bool](docs/TL-Bool.md) – Dual-input logic gate processor with probability.
-
 
 
 ## 📥 Installation
