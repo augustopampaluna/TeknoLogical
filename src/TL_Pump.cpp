@@ -1,6 +1,5 @@
 #include "plugin.hpp"
 #include "../helpers/widgets/sliders.hpp"
-
 #include <cmath>
 
 struct TL_Pump : Module {
@@ -40,8 +39,6 @@ struct TL_Pump : Module {
 
 	bool envActive = false;
 	float envTime = 0.f; // seconds since trigger
-
-	// Para que el scope se parezca a los dibujos: mínimo casi 0 (duck profundo)
 	static constexpr float minGain = 0.03f; // ~ -30 dB
 
 	struct ShapeDef {
@@ -56,11 +53,6 @@ struct TL_Pump : Module {
 		bool  latchZero;   // si true: al llegar a 0 se queda ahí hasta el próximo trigger
 	};
 
-	// Interpretación directa de tus 4 dibujos:
-	// 1) ataque inmediato + espera + release lento (kicks largos)
-	// 2) como 1 pero retorno más de golpe
-	// 3) fade out 1->0 y se queda en 0 hasta nuevo trigger
-	// 4) como 1 pero release más rápido (kicks cortos)
 	ShapeDef shapes[4] = {
 		// hold, release, releasePow, fade, fadePow, latchZero
 		{ 0.040f, 0.280f, 0.70f,   0.000f, 1.0f,  false }, // 1: sube relativamente rápido al inicio y se aplana (parecido a “curva suave”)
@@ -74,7 +66,7 @@ struct TL_Pump : Module {
 
 		configParam(SHAPE_PARAM, 0.f, 1.f, 0.f, "Shape");
 		configParam(TRIGGER_MANUAL_PARAM, 0.f, 1.f, 0.f, "Trigger");
-		configParam(DRYWET_PARAM, 0.f, 1.f, 1.f, "Dry/Wet"); // default 100%
+		configParam(DRYWET_PARAM, 0.f, 1.f, 1.f, "Dry/Wet");
 
 		configInput(TRIGGER_INPUT, "Trigger");
 		configInput(IN_L_INPUT, "In L");
@@ -89,14 +81,12 @@ struct TL_Pump : Module {
 		envTime = 0.f;
 	}
 
-	// gain(t) en [0..1], que es lo que multiplica el audio (lo que querés ver en el scope)
 	float gainFromShape(int idx, float t) {
 		const ShapeDef& s = shapes[idx];
 
 		// ---- Shape 3: fade-out y latch ----
 		if (idx == 2) {
 			// Antes del trigger, envActive=false -> devolvemos 1 en process()
-			// Acá estamos "después del trigger".
 			float x = (s.fade > 0.f) ? (t / s.fade) : 1.f;
 			x = clamp(x, 0.f, 1.f);
 
@@ -156,9 +146,6 @@ struct TL_Pump : Module {
 			const ShapeDef& s = shapes[shapeIndex];
 
 			// Auto-stop:
-			// - Shape3: si latchZero, mantenemos envActive verdadero mientras no haya nuevo trigger,
-			//           así gain se queda en 0.
-			// - Otras: paramos al final del release.
 			if (shapeIndex == 2) {
 				if (!s.latchZero && envTime > (s.fade + 0.01f)) {
 					envActive = false;
@@ -195,10 +182,9 @@ struct TL_Pump : Module {
 		lights[LED_D_LIGHT].setBrightness(shapeIndex == 3 ? 1.f : 0.f);
 
 		// --- Button lights:
-		// SHAPE_LED: solo cuando se presiona (sin tenue permanente)
 		lights[SHAPE_LED].setBrightness(clamp(params[SHAPE_PARAM].getValue(), 0.f, 1.f));
 
-		// TRIGGER_MANUAL_LED: feedback del gain (invertido para que “se vea” el pump)
+		// TRIGGER_MANUAL_LED: feedback del gain
 		// 1 = máximo pump, 0 = sin pump
 		float pumpAmt = 1.f - clamp(gain, 0.f, 1.f);
 		lights[TRIGGER_MANUAL_LED].setBrightness(clamp(pumpAmt, 0.f, 1.f));
