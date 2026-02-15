@@ -56,6 +56,34 @@
         "Mixer",
         "Panning"
       ]
+    },
+    {
+      "slug": "TL_Odd5",
+      "name": "TL_Odd5",
+      "description": "Odd sequencer.",
+      "tags": [
+        "Sequencer"
+      ]
+    },
+    {
+      "slug": "TL_Bool",
+      "name": "TL_Bool",
+      "description": "Dual-input logic with probability-driven variation",
+      "tags": [
+        "Logic"
+      ]
+    },
+    {
+      "slug": "TL_Pump",
+      "name": "TL_Pump",
+      "description": "Sidechain-style stereo ducker with selectable pump curves.",
+      "tags": [
+        "Waveshaper",
+        "Dynamics",
+        "Compressor"
+      ]
     }
+
+
   ]
 }

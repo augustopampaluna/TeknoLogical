@@ -13,4 +13,7 @@ extern Model* modelTL_Seq4;
 extern Model* modelTL_Reseter;
 extern Model* modelTL_Bass;
 extern Model* modelTL_Mixes;
+extern Model* modelTL_Odd5;
+extern Model* modelTL_Bool;
+extern Model* modelTL_Pump;
 
