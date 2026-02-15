@@ -1,26 +1,11 @@
 # TL-Pump
 
+<img width="214" height="908" alt="Screenshot 2026-02-12 211905" src="https://github.com/user-attachments/assets/647e1f94-6325-47f2-a95e-f732187b419a" />
+
 A **trigger-driven volume shaper / ducking module** for VCV Rack 2.  
 TL-Pump applies predefined sidechain-style gain curves to incoming stereo audio. It is designed for tight, musical pumping effects in minimal and techno contexts.
 
 Instead of a traditional compressor with threshold and ratio controls, TL-Pump provides **four fixed envelope shapes** optimized for common kick lengths and groove styles.
-
----
-
-## Overview
-
-TL-Pump is not a compressor.  
-It is a **triggered gain envelope** that multiplies the incoming audio by a predefined curve each time it receives a trigger.
-
-The goal is simple:
-
-- Clean  
-- Predictable  
-- Musically tuned  
-- Performance-focused  
-
-No threshold. No ratio. No attack tweaking.  
-Just controlled rhythmic pumping.
 
 ---
 
@@ -48,9 +33,6 @@ Just controlled rhythmic pumping.
 ---
 
 ## 📐 Envelope Shapes
-
-The four shapes are fixed and carefully tuned.  
-If white noise is passed through TL-Pump and observed on a scope, the amplitude contour will match these curves exactly.
 
 ### Shape 1 — Immediate Attack / Delayed Release (Long Kick)
 
